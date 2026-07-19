@@ -4,7 +4,7 @@ import pandas as pd
 np.random.seed(42)
 
 num_ships = 10      # 船舶数
-num_berths = 2      # バース数
+num_berths = 4      # バース数
 
 # 到着間隔の平均値
 # 神戸港の外航フルコンテナ船の年間入港隻数の8760時間 ÷ 3689隻 ≒ 2.37時間より、
