@@ -25,12 +25,13 @@ interarrival_times = np.random.exponential(
 arrival_times = np.cumsum(interarrival_times)
 arrival_times = arrival_times - arrival_times[0]
 
-# 荷役時間 H_j の生成
-# 荷役時間を2-Erlang分布として生成する
+# 荷役時間 H_jb の生成
+# 各船舶について、バースごとに異なる荷役時間を生成する
+# 行：船舶、列：バース
 handling_times = np.random.gamma(
     shape=handling_shape,
     scale=handling_scale,
-    size=num_ships
+    size=(num_ships, num_berths)
 )
 
 # 小数第1位に丸める
@@ -38,10 +39,15 @@ arrival_times = np.round(arrival_times, 1)
 handling_times = np.round(handling_times, 1)
 
 # 実験用データの作成
-df = pd.DataFrame({
-    "ship": [f"V{i+1}" for i in range(num_ships)],
+data = {
+    "ship": [f"V{i + 1}" for i in range(num_ships)],
     "arrival_time_A": arrival_times,
-    "handling_time_H": handling_times
-})
+}
+
+# バースごとの荷役時間を列として追加
+for berth_index in range(num_berths):
+    data[f"handling_time_B{berth_index + 1}"] = handling_times[:, berth_index]
+
+df = pd.DataFrame(data)
 
 print(df.to_string(index=False))
