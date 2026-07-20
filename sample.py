@@ -30,9 +30,6 @@ handling_times = np.random.gamma(
     size=(num_ships, num_berths)
 )
 
-arrival_times = np.round(arrival_times, 1)
-handling_times = np.round(handling_times, 1)
-
 # 入力データを作成
 data = {
     "ship": [f"V{i + 1}" for i in range(num_ships)],
@@ -47,7 +44,7 @@ for berth_index in range(num_berths):
 df = pd.DataFrame(data)
 
 print("生成された船舶データ")
-print(df.to_string(index=False))
+print(df.round(1).to_string(index=False))
 
 # ==========================================
 # FCFSによるバース割当
@@ -58,12 +55,8 @@ berth_available_times = np.zeros(num_berths)
 
 schedule = []
 
-# 到着時刻順に並べる
-fcfs_df = df.sort_values(
-    by=["arrival_time_A", "ship"]
-).reset_index(drop=True)
-
-for _, row in fcfs_df.iterrows():
+# dfはV1から到着時刻順に並んでいる
+for _, row in df.iterrows():
     ship = row["ship"]
     arrival_time = row["arrival_time_A"]
 
@@ -122,18 +115,8 @@ for _, row in fcfs_df.iterrows():
 
 schedule_df = pd.DataFrame(schedule)
 
-time_columns = [
-    "arrival_time",
-    "handling_time",
-    "start_time",
-    "completion_time",
-    "waiting_time"
-]
-
-schedule_df[time_columns] = schedule_df[time_columns].round(1)
-
 print("\nFCFSによるバース割当結果")
-print(schedule_df.to_string(index=False))
+print(schedule_df.round(1).to_string(index=False))
 
 # ==========================================
 # 評価指標
