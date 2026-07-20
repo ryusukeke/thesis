@@ -4,7 +4,7 @@ import pandas as pd
 np.random.seed(42)
 
 num_ships = 10
-num_berths = 4
+num_berths = 3
 
 # 到着間隔の平均値
 mean_interarrival_time = 2.37
