@@ -1,10 +1,17 @@
 # 到着時刻の改ざんとバース割当の予備比較
 
 7月28日のゼミ報告にある、9月後半までの「正常時と攻撃時の予備比較」を行うプログラムです。
-もとの `sample.py` のFCFS割当を活かし、Pythonの関数と繰り返し処理で実装しています。
+既存のFCFS割当を活かし、Pythonの関数と繰り返し処理で実装しています。
 実験結果と考察の入口は [docs/preliminary_comparison.md](docs/preliminary_comparison.md) にまとめました。
 変更前後の違いと修正理由は [docs/change_log.md](docs/change_log.md) にまとめました。
-`sample.py` 全体の処理と各関数の説明は [docs/sample_implementation.md](docs/sample_implementation.md) にまとめました。
+`sample.py` の計算処理は [docs/sample_implementation.md](docs/sample_implementation.md)、実行・出力処理は [docs/run_experiment_implementation.md](docs/run_experiment_implementation.md) に説明しています。
+
+| ファイル | 役割 |
+| --- | --- |
+| `sample.py` | 船舶データ生成、改ざん、バース割当、評価、比較実験の計算。結果を表として返す |
+| `run_experiment.py` | コマンド引数の読み取り、実験の呼び出し、CSV・JSON・グラフ保存、画面表示 |
+
+実行するファイルは `run_experiment.py` です。`sample.py` は計算用の関数を定義し、直接実行しても実験や保存を開始しません。
 
 ## 実装した範囲
 
@@ -24,7 +31,7 @@ Python 3.10以上を使用します。すでに `.venv` があれば、そのま
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python sample.py
+python run_experiment.py
 ```
 
 初期設定は船10隻、バース3つ、V5の申告時刻を±4時間変更、100回実行です。
@@ -35,16 +42,16 @@ python sample.py
 
 ```bash
 # 1回だけ実行して割当の詳細を見る
-python sample.py --trials 1 --output results_single
+python run_experiment.py --trials 1 --output results_single
 
 # 対象船と改ざん幅を変えて、別フォルダへ保存する
-python sample.py --attack-ship V7 --shift 2 --output results_v7
+python run_experiment.py --attack-ship V7 --shift 2 --output results_v7
 
 # 船数・バース数を変える
-python sample.py --ships 20 --berths 2 --output results_busy
+python run_experiment.py --ships 20 --berths 2 --output results_busy
 
 # グラフが不要な場合
-python sample.py --no-plot
+python run_experiment.py --no-plot
 ```
 
 `--output` に同じフォルダを指定すると、そのフォルダの同名の結果ファイルを上書きします。

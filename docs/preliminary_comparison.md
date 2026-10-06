@@ -98,10 +98,12 @@ Normalは正常時、Early reportは早い申告、Late reportは遅い申告を
 
 ## 再現方法と確認
 
+2026年10月7日に出力処理を別ファイルへ移したため、実行コマンドは `run_experiment.py` に変更した。計算方法と保存済みの実験結果は同じである。
+
 リポジトリのルートで、必要なライブラリをインストールした仮想環境から実行する。
 
 ```bash
-python sample.py
+python run_experiment.py
 python -m unittest -v
 ```
 
