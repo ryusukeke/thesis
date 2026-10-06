@@ -78,6 +78,26 @@ class SimulationTests(unittest.TestCase):
         self.assertTrue((handling.to_numpy() > 0).all())
         self.assertGreater(handling.corr().loc["handling_time_B1", "handling_time_B3"], 0.95)
 
+    def test_each_ship_has_permuted_factors_and_different_fastest_berths(self):
+        data = generate_ship_data(100, 3, 42)
+        factors = data.filter(like="berth_factor_B").to_numpy()
+        np.testing.assert_allclose(np.sort(factors, axis=1), np.tile([0.9, 1.0, 1.1], (100, 1)))
+        handling = data.filter(like="handling_time_B").to_numpy()
+        # 係数0.9の誤差上限は0.945で、係数1.0の下限0.95より小さい。
+        np.testing.assert_array_equal(handling.argmin(axis=1), factors.argmin(axis=1))
+        self.assertEqual(set(handling.argmin(axis=1)), {0, 1, 2})
+        relative_noise = handling / (data["base_handling_time"].to_numpy()[:, None] * factors) - 1
+        self.assertTrue((np.abs(relative_noise) <= 0.05).all())
+
+    def test_factor_permutation_supports_one_two_and_four_berths(self):
+        for berths in (1, 2, 4):
+            with self.subTest(berths=berths):
+                data = generate_ship_data(20, berths, 42)
+                pd.testing.assert_frame_equal(data, generate_ship_data(20, berths, 42))
+                expected = np.linspace(0.9, 1.1, berths) if berths > 1 else [1.0]
+                factors = data.filter(like="berth_factor_B").to_numpy()
+                np.testing.assert_allclose(np.sort(factors, axis=1), np.tile(expected, (20, 1)))
+
     def test_all_scenarios_have_valid_paired_schedules(self):
         results = run_experiment(trials=8)
         schedules = results["schedules"]

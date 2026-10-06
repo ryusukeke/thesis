@@ -23,13 +23,15 @@ METRICS = (
 
 
 def generate_ship_data(num_ships=10, num_berths=3, seed=42):
-    """船ごとに一つの基準荷役時間を作り、全バースで共有する。"""
+    """船ごとの基準荷役時間と、係数のランダム配置で相性を表す。"""
     rng = np.random.default_rng(seed)
     intervals = rng.exponential(MEAN_INTERARRIVAL_TIME, num_ships)
     arrivals = np.cumsum(intervals)
     arrivals -= arrivals[0]  # 最初の船の到着を時刻0にする
     base_times = rng.gamma(HANDLING_SHAPE, HANDLING_SCALE, num_ships)
     factors = np.linspace(0.9, 1.1, num_berths) if num_berths > 1 else [1.0]
+    # 各船が同じ係数の組を持つが、速いバースは船ごとに変わる。
+    ship_factors = np.array([rng.permutation(factors) for _ in range(num_ships)])
 
     data = pd.DataFrame({
         "ship": [f"V{i + 1}" for i in range(num_ships)],
@@ -37,8 +39,10 @@ def generate_ship_data(num_ships=10, num_berths=3, seed=42):
         "reported_arrival_time": arrivals.copy(),
         "base_handling_time": base_times,
     })
-    for index, factor in enumerate(factors, 1):
+    for index in range(1, num_berths + 1):
+        factor = ship_factors[:, index - 1]
         noise = rng.uniform(-HANDLING_NOISE, HANDLING_NOISE, num_ships)
+        data[f"berth_factor_B{index}"] = factor
         data[f"handling_time_B{index}"] = base_times * factor * (1 + noise)
     return data
 

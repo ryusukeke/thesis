@@ -83,6 +83,7 @@ def main():
         "handling_shape": HANDLING_SHAPE, "handling_scale": HANDLING_SCALE,
         "handling_noise": HANDLING_NOISE,
         "berth_factors": np.linspace(0.9, 1.1, args.berths).tolist() if args.berths > 1 else [1.0],
+        "berth_factor_assignment": "random_permutation_per_ship",
         "time_unit": "hours", "execution_policy": "fixed_plan_no_rescheduling",
         "numpy_version": np.__version__, "pandas_version": pd.__version__,
     }
