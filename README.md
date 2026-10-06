@@ -44,8 +44,12 @@ python run_experiment.py
 | `--shift` | 4.0 | 申告を早める・遅らせる時間の大きさ |
 | `--output` | results | 保存先 |
 | `--no-plot` | 指定なし | グラフを作らない |
+| `--no-save` | 指定なし | ファイルを保存せず、ターミナルに結果だけ表示 |
 
 ```bash
+# ファイルを保存せず結果だけ確認する
+python run_experiment.py --no-save
+
 # 保存済みの結果を残し、別の条件を試す
 python run_experiment.py --attack-ship V7 --shift 2 --output results_v7
 
@@ -57,6 +61,7 @@ python -m unittest -v
 ```
 
 同じ保存先の同名ファイルは上書きします。`--no-plot`では古いグラフも削除します。
+`--no-save`では保存先の作成・CSV/JSON/PNGの保存・古いグラフの削除を行いません。`--output`を一緒に指定しても保存しません。
 船数の増加だけで混雑が強くなるとは限りません。混雑度を変える実験は[今後の計画](docs/今後の計画.md)を参照してください。
 
 ## モデルの概要

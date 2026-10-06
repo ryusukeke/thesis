@@ -65,38 +65,40 @@ def main():
     parser.add_argument("--attack-ship", default="V5", help="改ざん対象船（初期値V5）")
     parser.add_argument("--shift", type=float, default=4.0, help="早める・遅らせる時間（初期値4）")
     parser.add_argument("--output", type=Path, default=Path("results"), help="保存先（初期値results）")
-    parser.add_argument("--no-plot", action="store_true", help="CSVのみ出力する")
+    parser.add_argument("--no-plot", action="store_true", help="グラフを作らずCSVとJSONを保存する")
+    parser.add_argument("--no-save", action="store_true", help="ファイルを保存せずターミナルに結果だけ表示する")
     args = parser.parse_args()
     try:
         results = run_experiment(args.trials, args.ships, args.berths, args.seed, args.attack_ship, args.shift)
     except ValueError as error:
         parser.error(str(error))
 
-    args.output.mkdir(parents=True, exist_ok=True)
-    for name, table in results.items():
-        table.to_csv(args.output / f"{name}.csv", index=False, encoding="utf-8-sig")
-    config = {
-        "trials": args.trials, "num_ships": args.ships, "num_berths": args.berths,
-        "first_seed": args.seed, "last_seed": args.seed + args.trials - 1,
-        "target_ship": args.attack_ship, "shift_hours": args.shift,
-        "mean_interarrival_time": MEAN_INTERARRIVAL_TIME,
-        "handling_shape": HANDLING_SHAPE, "handling_scale": HANDLING_SCALE,
-        "handling_noise": HANDLING_NOISE,
-        "berth_factors": np.linspace(0.9, 1.1, args.berths).tolist() if args.berths > 1 else [1.0],
-        "berth_factor_assignment": "random_permutation_per_ship",
-        "time_unit": "hours", "execution_policy": "fixed_plan_no_rescheduling",
-        "numpy_version": np.__version__, "pandas_version": pd.__version__,
-    }
-    (args.output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    # 過去のグラフが新しいCSVと混在しないようにする。
-    (args.output / "waiting_time_comparison.png").unlink(missing_ok=True)
-    if not args.no_plot:
-        try:
-            save_plot(results["summary"], args.output, args.attack_ship, args.shift)
-        except ModuleNotFoundError as error:
-            if error.name != "matplotlib":
-                raise
-            print("グラフの作成には matplotlib が必要です。CSVの保存は完了しました。")
+    if not args.no_save:
+        args.output.mkdir(parents=True, exist_ok=True)
+        for name, table in results.items():
+            table.to_csv(args.output / f"{name}.csv", index=False, encoding="utf-8-sig")
+        config = {
+            "trials": args.trials, "num_ships": args.ships, "num_berths": args.berths,
+            "first_seed": args.seed, "last_seed": args.seed + args.trials - 1,
+            "target_ship": args.attack_ship, "shift_hours": args.shift,
+            "mean_interarrival_time": MEAN_INTERARRIVAL_TIME,
+            "handling_shape": HANDLING_SHAPE, "handling_scale": HANDLING_SCALE,
+            "handling_noise": HANDLING_NOISE,
+            "berth_factors": np.linspace(0.9, 1.1, args.berths).tolist() if args.berths > 1 else [1.0],
+            "berth_factor_assignment": "random_permutation_per_ship",
+            "time_unit": "hours", "execution_policy": "fixed_plan_no_rescheduling",
+            "numpy_version": np.__version__, "pandas_version": pd.__version__,
+        }
+        (args.output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        # 過去のグラフが新しいCSVと混在しないようにする。
+        (args.output / "waiting_time_comparison.png").unlink(missing_ok=True)
+        if not args.no_plot:
+            try:
+                save_plot(results["summary"], args.output, args.attack_ship, args.shift)
+            except ModuleNotFoundError as error:
+                if error.name != "matplotlib":
+                    raise
+                print("グラフの作成には matplotlib が必要です。CSVの保存は完了しました。")
 
     print(f"\n{args.trials}回の比較：船{args.ships}隻、バース{args.berths}、対象{args.attack_ship}、改ざん幅±{args.shift:g}時間")
     print("評価は実到着時刻から計算。各試行で3条件に同じ船舶データを使用。\n")
@@ -107,7 +109,10 @@ def main():
     comparison = results["paired_comparison"]
     for _, row in comparison[comparison["metric"] == "average_waiting_time"].iterrows():
         print(f"{SCENARIO_NAMES[row['scenario']]}: {row['mean_difference']:+.3f}時間 / 悪化{row['increased_trials']}回、改善{row['decreased_trials']}回、変化なし{row['unchanged_trials']}回")
-    print(f"\n保存先: {args.output.resolve()}")
+    if args.no_save:
+        print("\nファイルは保存していません。")
+    else:
+        print(f"\n保存先: {args.output.resolve()}")
 
 
 if __name__ == "__main__":
