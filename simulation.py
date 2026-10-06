@@ -27,6 +27,7 @@ def generate_ship_data(num_ships=10, num_berths=3, seed=42):
     rng = np.random.default_rng(seed)
     intervals = rng.exponential(MEAN_INTERARRIVAL_TIME, num_ships)
     arrivals = np.cumsum(intervals)
+    print(arrivals)
     arrivals -= arrivals[0]  # 最初の船の到着を時刻0にする
     base_times = rng.gamma(HANDLING_SHAPE, HANDLING_SCALE, num_ships)
     factors = np.linspace(0.9, 1.1, num_berths) if num_berths > 1 else [1.0]
