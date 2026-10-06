@@ -15,12 +15,12 @@ Pythonの関数と繰り返し処理を中心に、卒論で説明できる規�
 | [今後の計画](docs/今後の計画.md) | 研究の問い、採用した再割当方針と未決定の規則、追加実験の計画 |
 | [攻撃モデル](docs/攻撃モデル.md) | 攻撃目的・知識・能力・改ざん範囲の案 |
 | [シミュレーション実装説明](docs/シミュレーション実装説明.md) | `simulation.py`の計算処理・式・具体例 |
-| [実験実行と出力の実装説明](docs/実験実行と出力の実装説明.md) | `run_experiment.py`の保存・表示処理 |
+| [実験実行と出力の実装説明](docs/実験実行と出力の実装説明.md) | `main.py`の保存・表示処理 |
 | [予備比較レポート](docs/予備比較レポート.md) | 現在の100試行の条件・結果・考察 |
 | [変更履歴](docs/変更履歴.md) | 何を、なぜ変更したか |
 | [過去資料](docs/過去資料/README.md) | 旧方式の結果と過去の詳細記録 |
 
-`simulation.py`は計算結果を返し、`run_experiment.py`は実行・保存・表示を担当します。
+`simulation.py`は計算結果を返し、`main.py`は実行・保存・表示を担当します。
 `simulation.py`を直接実行しても、実験や保存は始まりません。
 
 ## 実行方法
@@ -31,7 +31,7 @@ Python 3.10以上を使用します。既存の`.venv`があれば作成・イ�
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python run_experiment.py
+python main.py
 ```
 
 | 引数 | 初期値 | 意味 |
@@ -48,13 +48,13 @@ python run_experiment.py
 
 ```bash
 # ファイルを保存せず結果だけ確認する
-python run_experiment.py --no-save
+python main.py --no-save
 
 # 保存済みの結果を残し、別の条件を試す
-python run_experiment.py --attack-ship V7 --shift 2 --output results_v7
+python main.py --attack-ship V7 --shift 2 --output results_v7
 
 # 1試行だけ確認し、グラフを省略する
-python run_experiment.py --trials 1 --no-plot --output results_single
+python main.py --trials 1 --no-plot --output results_single
 
 # 自動テスト
 python -m unittest -v
