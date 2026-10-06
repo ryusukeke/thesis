@@ -30,7 +30,10 @@ METRIC_NAMES = {
 
 
 def save_plot(summary, output_dir, target_ship, shift_hours):
-    """卒論用の簡単な棒グラフ。日本語フォントへの依存を避けて英語表記にする。"""
+    """全船と対象船以外の平均待ち時間を、3条件で比較するPNGを保存する。
+
+    集計済みの試行平均を使う。日本語フォントへの依存を避けて英語表記にする。
+    """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -57,6 +60,10 @@ def save_plot(summary, output_dir, target_ship, shift_hours):
 
 
 def main():
+    """コマンド引数で実験を実行し、集計結果を表示する。通常は結果も保存する。
+
+    --no-saveでは全保存処理を省略し、--no-plotではグラフ保存だけを省略する。
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trials", type=int, default=100, help="試行回数（初期値100）")
     parser.add_argument("--ships", type=int, default=10, help="船数（初期値10）")
@@ -73,6 +80,7 @@ def main():
     except ValueError as error:
         parser.error(str(error))
 
+    # 保存省略時はフォルダ作成も既存グラフの削除も行わない。
     if not args.no_save:
         args.output.mkdir(parents=True, exist_ok=True)
         for name, table in results.items():
@@ -102,6 +110,7 @@ def main():
 
     print(f"\n{args.trials}回の比較：船{args.ships}隻、バース{args.berths}、対象{args.attack_ship}、改ざん幅±{args.shift:g}時間")
     print("評価は実到着時刻から計算。各試行で3条件に同じ船舶データを使用。\n")
+    # 集計表を「行＝条件、列＝指標」に並べ替え、4指標の試行平均を表示する。
     means = results["summary"].pivot(index="scenario", columns="metric", values="mean")
     display_metrics = ["average_waiting_time", "average_turnaround_time", "target_waiting_time", "other_average_waiting_time"]
     print(means.loc[list(SCENARIO_NAMES), display_metrics].rename(index=SCENARIO_NAMES, columns=METRIC_NAMES).round(3).to_string())

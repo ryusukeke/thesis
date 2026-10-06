@@ -8,7 +8,7 @@ import pandas as pd
 MEAN_INTERARRIVAL_TIME = 2.37
 HANDLING_SHAPE = 2  # shape が整数のガンマ分布は Erlang 分布
 HANDLING_SCALE = 2.4  # 基準荷役時間の平均は 2 × 2.4 = 4.8 時間
-HANDLING_NOISE = 0.05  # バースごとに基準時間の ±5% の小さな揺らぎ
+HANDLING_NOISE = 0.05  # 船とバースごとに、基準時間×係数を±5%補正する
 SCENARIOS = ("normal", "early", "late")
 METRICS = (
     "total_waiting_time",
@@ -23,12 +23,18 @@ METRICS = (
 
 
 def generate_ship_data(num_ships=10, num_berths=3, seed=42):
-    """船ごとの基準荷役時間と、係数のランダム配置で相性を表す。"""
+    """各船の到着時刻・基準荷役時間・バース係数・バース別荷役時間を生成する。
+
+    初期の申告到着時刻は実到着時刻と同じにし、係数を船ごとに並べ替えて
+    船とバースの相性を表す。生成した船舶データをDataFrameで返す。
+    """
     rng = np.random.default_rng(seed)
+    # 到着間隔を累積して到着時刻にする。同じseedなら同じデータを再現できる。
     intervals = rng.exponential(MEAN_INTERARRIVAL_TIME, num_ships)
     arrivals = np.cumsum(intervals)
     arrivals -= arrivals[0]  # 最初の船の到着を時刻0にする
-    base_times = rng.gamma(HANDLING_SHAPE, HANDLING_SCALE, num_ships)
+    base_times = rng.gamma(HANDLING_SHAPE, HANDLING_SCALE, num_ships) # 基準となる荷役時間を生成
+    # 3バースなら0.9・1.0・1.1。1バースの場合は補正なしの1.0。
     factors = np.linspace(0.9, 1.1, num_berths) if num_berths > 1 else [1.0]
     # 各船が同じ係数の組を持つが、速いバースは船ごとに変わる。
     ship_factors = np.array([rng.permutation(factors) for _ in range(num_ships)])
@@ -48,7 +54,11 @@ def generate_ship_data(num_ships=10, num_berths=3, seed=42):
 
 
 def apply_attack(data, target_ship, shift_hours):
-    """申告時刻だけを変更する。実到着時刻と荷役時間は変更しない。"""
+    """対象船1隻の申告時刻を実到着時刻からずらしたコピーを返す。
+
+    shift_hoursが負なら早い申告、正なら遅い申告。0未満の申告は0に丸める。
+    元データ、実到着時刻、荷役時間、他船の申告時刻は変更しない。
+    """
     attacked = data.copy(deep=True)
     target = attacked["ship"] == target_ship
     if target.sum() != 1:
@@ -60,12 +70,16 @@ def apply_attack(data, target_ship, shift_hours):
 
 
 def assign_berths(data):
-    """申告時刻でFCFS計画を作り、実到着時刻でその計画を実行する。"""
+    """申告時刻でFCFS計画を作り、その固定計画の実行結果を表で返す。
+
+    計画と実行の開始・完了時刻、割当バース、待ち時間・在港時間を記録する。
+    未到着船を飛ばす順序変更や、別バースへの再割当は行わない。
+    """
     berth_columns = [c for c in data.columns if c.startswith("handling_time_B")]
     planned_available = np.zeros(len(berth_columns))
     plan = []
 
-    # 同時刻なら元データの船番号順を維持する。
+    # 同時刻なら入力の行順を維持する。生成した元データでは船番号順になる。
     ordered = data.sort_values("reported_arrival_time", kind="stable")
     for order, (_, row) in enumerate(ordered.iterrows(), 1):
         candidates = []
@@ -87,10 +101,11 @@ def assign_berths(data):
             "planned_completion_time": completion,
         })
 
-    # 割当バースと順番は固定。早く申告しても実到着前には荷役できない。
+    # 各バースの割当順を守る。バースごとに空く時刻を管理し、別バースは並行して動く。
     actual_available = np.zeros(len(berth_columns))
     for row in plan:
         index = int(row["assigned_berth"][1:]) - 1
+        # 計画開始・実到着・同じバースの前船の完了をすべて満たしてから開始する。
         start = max(row["planned_start_time"], row["actual_arrival_time"], actual_available[index])
         completion = start + row["handling_time"]
         actual_available[index] = completion
@@ -102,6 +117,11 @@ def assign_berths(data):
 
 
 def calculate_metrics(schedule, target_ship):
+    """1試行・1条件の全船、対象船、対象船以外の評価指標8個を辞書で返す。
+
+    待ち時間は実到着から開始まで、在港時間は実到着から完了までを表す。
+    全船の荷役完了時刻は、共通の時刻軸上での最大完了時刻。
+    """
     target = schedule["ship"] == target_ship
     return {
         "total_waiting_time": schedule["waiting_time"].sum(),
@@ -116,7 +136,11 @@ def calculate_metrics(schedule, target_ship):
 
 
 def summarize_results(run_metrics):
-    """各条件の平均・標準偏差と、同じseedでの正常時との差を集計する。"""
+    """条件別の集計表と、試行を対応づけた正常時との差の比較表を返す。
+
+    差は「攻撃時−正常時」。差の平均・標準偏差・最小・最大と増減回数を集計する。
+    標準偏差は標本標準偏差で、1試行の場合は計算できずNaNになる。
+    """
     summaries = []
     comparisons = []
     normal = run_metrics[run_metrics["scenario"] == "normal"].set_index("trial")
@@ -130,7 +154,9 @@ def summarize_results(run_metrics):
             })
             if scenario == "normal":
                 continue
+            # trialを索引にして同じ元データの結果同士を引き算する。
             differences = values - normal[metric]
+            # 小数の計算誤差を増減と数えないよう、±1e-9時間以内は変化なしとする。
             comparisons.append({
                 "scenario": scenario, "metric": metric, "trials": len(values),
                 "normal_mean": normal[metric].mean(), "attack_mean": values.mean(),
@@ -146,6 +172,12 @@ def summarize_results(run_metrics):
 
 def run_experiment(trials=100, num_ships=10, num_berths=3, seed=42,
                    target_ship="V5", shift_hours=4.0):
+    """試行ごとにseedを1増やし、正常・早い申告・遅い申告の固定計画を比較する。
+
+    同じ試行では実到着と荷役時間を共有し、対象船の申告時刻だけを変える。
+    元データ、船別スケジュール、試行別指標、集計、正常時との差の5表を辞書で返す。
+    ファイル保存と画面表示は呼び出し元に任せる。
+    """
     if trials < 1 or num_ships < 2 or num_berths < 1 or seed < 0:
         raise ValueError("試行回数は1以上、船数は2以上、バース数は1以上、seedは0以上にしてください。")
     if target_ship not in [f"V{i + 1}" for i in range(num_ships)]:
