@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from sample import apply_attack, assign_berths, calculate_metrics, generate_ship_data, run_experiment
+from simulation import apply_attack, assign_berths, calculate_metrics, generate_ship_data, run_experiment
 
 
 def small_data(arrivals, handling):

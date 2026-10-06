@@ -1,10 +1,10 @@
-# sample.py 全体の実装説明
+# simulation.py 全体の実装説明
 
 作成日：2026年10月6日
 
 更新日：2026年10月7日（計算処理と出力処理の分離を反映）
 
-対象：[sample.py](../sample.py)
+対象：[simulation.py](../simulation.py)
 
 ## 1. このプログラムで行うこと
 
@@ -24,7 +24,7 @@
 攻撃では申告時刻だけを変更し、実際の到着時刻と荷役時間は維持する。
 
 初期設定では船10隻、バース3つ、攻撃対象V5、変更幅±4時間で、100回の比較を行う。
-`sample.py` は計算結果を表として返す。表示とCSV・JSON・グラフの保存は [run_experiment.py](../run_experiment.py) が担当する。
+`simulation.py` は計算結果を表として返す。表示とCSV・JSON・グラフの保存は [run_experiment.py](../run_experiment.py) が担当する。
 
 ## 2. 全体の処理の流れ
 
@@ -385,7 +385,7 @@ run_experiment(trials=100, num_ships=10, num_berths=3,
 Pythonから計算だけを行う場合は、次のように呼ぶ。
 
 ```python
-from sample import run_experiment
+from simulation import run_experiment
 
 results = run_experiment(trials=100)
 summary = results["summary"]
@@ -394,7 +394,7 @@ schedules = results["schedules"]
 
 この呼び出しだけでは `results/` フォルダやファイルは作成されず、グラフや画面表示も行われない。
 結果をどう利用するかは呼び出し元で決める。
-`test_sample.py` も同様に計算関数を読み込み、小さな入力で確認する。
+`test_simulation.py` も同様に計算関数を読み込み、小さな入力で確認する。
 
 コマンドから実験し、結果を保存する場合は、リポジトリのルートで次を実行する。
 

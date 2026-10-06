@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from sample import (
+from simulation import (
     HANDLING_NOISE,
     HANDLING_SCALE,
     HANDLING_SHAPE,

@@ -4,14 +4,14 @@
 既存のFCFS割当を活かし、Pythonの関数と繰り返し処理で実装しています。
 実験結果と考察の入口は [docs/preliminary_comparison.md](docs/preliminary_comparison.md) にまとめました。
 変更前後の違いと修正理由は [docs/change_log.md](docs/change_log.md) にまとめました。
-`sample.py` の計算処理は [docs/sample_implementation.md](docs/sample_implementation.md)、実行・出力処理は [docs/run_experiment_implementation.md](docs/run_experiment_implementation.md) に説明しています。
+`simulation.py` の計算処理は [docs/simulation_implementation.md](docs/simulation_implementation.md)、実行・出力処理は [docs/run_experiment_implementation.md](docs/run_experiment_implementation.md) に説明しています。
 
 | ファイル | 役割 |
 | --- | --- |
-| `sample.py` | 船舶データ生成、改ざん、バース割当、評価、比較実験の計算。結果を表として返す |
+| `simulation.py` | 船舶データ生成、改ざん、バース割当、評価、比較実験の計算。結果を表として返す |
 | `run_experiment.py` | コマンド引数の読み取り、実験の呼び出し、CSV・JSON・グラフ保存、画面表示 |
 
-実行するファイルは `run_experiment.py` です。`sample.py` は計算用の関数を定義し、直接実行しても実験や保存を開始しません。
+実行するファイルは `run_experiment.py` です。`simulation.py` は計算用の関数を定義し、直接実行しても実験や保存を開始しません。
 
 ## 実装した範囲
 

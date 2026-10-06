@@ -6,7 +6,7 @@
 
 ## 1. ファイルの役割
 
-`sample.py` で計算した結果を、CSV・設定JSON・グラフとして保存し、画面に表示する。
+`simulation.py` で計算した結果を、CSV・設定JSON・グラフとして保存し、画面に表示する。
 コマンド引数の読み取りと実験の呼び出しもこのファイルが担当する。
 計算方法と実験条件は、2026年10月6日の実装から変更していない。
 
@@ -15,7 +15,7 @@ python run_experiment.py
     ↓
 main()：コマンド引数を読み取る
     ↓
-sample.run_experiment()：計算結果を5つの表として返す
+simulation.run_experiment()：計算結果を5つの表として返す
     ↓
 main()：CSV5個とconfig.jsonを保存
     ↓
@@ -24,7 +24,7 @@ save_plot()：有効な場合にグラフを保存
 main()：平均値・変化の回数・保存先を表示
 ```
 
-計算部分の詳細は [sample.pyの実装説明](sample_implementation.md) を参照する。
+計算部分の詳細は [simulation.pyの実装説明](simulation_implementation.md) を参照する。
 
 ## 2. ライブラリと表示名
 
@@ -34,11 +34,11 @@ main()：平均値・変化の回数・保存先を表示
 | `json` | 実験条件を設定ファイルに変換する |
 | `pathlib.Path` | 保存先フォルダとファイルを扱う |
 | `numpy`、`pandas` | 設定JSONへのバージョン記録などに使う |
-| `sample` の定数と `run_experiment()` | 計算条件を参照し、実験を実行する |
+| `simulation` の定数と `run_experiment()` | 計算条件を参照し、実験を実行する |
 | `matplotlib` | `save_plot()` の中で読み込み、グラフを作る |
 
 `SCENARIO_NAMES` は条件名と日本語表示名、`METRIC_NAMES` は評価指標名と日本語表示名を対応づける辞書である。
-計算処理の識別名は `sample.py` にあり、表示用の日本語名はこのファイルで管理する。
+計算処理の識別名は `simulation.py` にあり、表示用の日本語名はこのファイルで管理する。
 
 ## 3. save_plot()：比較グラフの作成
 
@@ -138,7 +138,7 @@ if __name__ == "__main__":
 
 この条件は、`python run_experiment.py` のようにファイルを直接実行したときだけ `main()` を呼ぶためのものである。
 別ファイルから `import run_experiment` した場合は、関数と設定値を読み込むだけで、実験やファイル保存は始まらない。
-`sample.py` 自体にはこの入口処理は置かず、計算関数を定義するだけにしている。
+`simulation.py` 自体にはこの入口処理は置かず、計算関数を定義するだけにしている。
 
 ## 6. 実行と結果の確認
 
