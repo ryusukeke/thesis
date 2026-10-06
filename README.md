@@ -2,10 +2,10 @@
 
 7月28日のゼミ報告にある、9月後半までの「正常時と攻撃時の予備比較」を行うプログラムです。
 既存のFCFS割当を活かし、Pythonの関数と繰り返し処理で実装しています。
-実験結果と考察の入口は [docs/preliminary_comparison.md](docs/preliminary_comparison.md) にまとめました。
-変更前後の違いと修正理由は [docs/change_log.md](docs/change_log.md) にまとめました。
-現実装から逆算した要件と、意図とのずれを確認する項目は [docs/requirements.md](docs/requirements.md) にまとめました。
-`simulation.py` の計算処理は [docs/simulation_implementation.md](docs/simulation_implementation.md)、実行・出力処理は [docs/run_experiment_implementation.md](docs/run_experiment_implementation.md) に説明しています。
+実験結果と考察の入口は [docs/予備比較レポート.md](docs/予備比較レポート.md) にまとめました。
+変更前後の違いと修正理由は [docs/変更履歴.md](docs/変更履歴.md) にまとめました。
+現実装から逆算した要件と、意図とのずれを確認する項目は [docs/要件定義書.md](docs/要件定義書.md) にまとめました。
+`simulation.py` の計算処理は [docs/シミュレーション実装説明.md](docs/シミュレーション実装説明.md)、実行・出力処理は [docs/実験実行と出力の実装説明.md](docs/実験実行と出力の実装説明.md) に説明しています。
 
 | ファイル | 役割 |
 | --- | --- |
