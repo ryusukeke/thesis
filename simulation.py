@@ -35,10 +35,9 @@ def generate_ship_data(num_ships=10, num_berths=3, seed=42):
     arrivals -= arrivals[0]  # 最初の船の到着を時刻0にする
     base_times = rng.gamma(HANDLING_SHAPE, HANDLING_SCALE, num_ships) # 基準となる荷役時間を生成
     # 3バースなら0.9・1.0・1.1。1バースの場合は補正なしの1.0。
-    factors = np.linspace(0.9, 1.1, num_berths) if num_berths > 1 else [1.0]
+    factors = np.linspace(0.9, 1.1, num_berths) if num_berths > 1 else [1.0] # 0.9から1.1までを等間隔に並べる バースが4つなら[0.9, 約0.967, 約1.033, 1.1]
     # 各船が同じ係数の組を持つが、速いバースは船ごとに変わる。
     ship_factors = np.array([rng.permutation(factors) for _ in range(num_ships)])
-
     data = pd.DataFrame({
         "ship": [f"V{i + 1}" for i in range(num_ships)],
         "actual_arrival_time": arrivals,
@@ -46,7 +45,7 @@ def generate_ship_data(num_ships=10, num_berths=3, seed=42):
         "base_handling_time": base_times,
     })
     for index in range(1, num_berths + 1):
-        factor = ship_factors[:, index - 1]
+        factor = ship_factors[:, index - 1] # 該当列の全ての行を取り出す
         noise = rng.uniform(-HANDLING_NOISE, HANDLING_NOISE, num_ships)
         data[f"berth_factor_B{index}"] = factor
         data[f"handling_time_B{index}"] = base_times * factor * (1 + noise)
