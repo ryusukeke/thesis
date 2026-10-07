@@ -83,11 +83,11 @@ class SimulationTests(unittest.TestCase):
         factors = data.filter(like="berth_factor_B").to_numpy()
         np.testing.assert_allclose(np.sort(factors, axis=1), np.tile([0.9, 1.0, 1.1], (100, 1)))
         handling = data.filter(like="handling_time_B").to_numpy()
-        # 係数0.9の誤差上限は0.945で、係数1.0の下限0.95より小さい。
+        # 共通の基準時間を係数だけで補正するため、最小係数のバースが最速になる。
         np.testing.assert_array_equal(handling.argmin(axis=1), factors.argmin(axis=1))
         self.assertEqual(set(handling.argmin(axis=1)), {0, 1, 2})
-        relative_noise = handling / (data["base_handling_time"].to_numpy()[:, None] * factors) - 1
-        self.assertTrue((np.abs(relative_noise) <= 0.05).all())
+        relative_handling = handling / data["base_handling_time"].to_numpy()[:, None]
+        np.testing.assert_allclose(relative_handling, factors)
 
     def test_factor_permutation_supports_one_two_and_four_berths(self):
         for berths in (1, 2, 4):

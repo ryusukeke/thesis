@@ -8,7 +8,6 @@ import pandas as pd
 MEAN_INTERARRIVAL_TIME = 2.37
 HANDLING_SHAPE = 2  # shape が整数のガンマ分布は Erlang 分布
 HANDLING_SCALE = 2.4  # 基準荷役時間の平均は 2 × 2.4 = 4.8 時間
-HANDLING_NOISE = 0.05  # 船とバースごとに、基準時間×係数を±5%補正する
 SCENARIOS = ("normal", "early", "late")
 METRICS = (
     "total_waiting_time",
@@ -46,9 +45,8 @@ def generate_ship_data(num_ships=10, num_berths=3, seed=42):
     })
     for index in range(1, num_berths + 1):
         factor = ship_factors[:, index - 1] # 該当列の全ての行を取り出す
-        noise = rng.uniform(-HANDLING_NOISE, HANDLING_NOISE, num_ships)
         data[f"berth_factor_B{index}"] = factor
-        data[f"handling_time_B{index}"] = base_times * factor * (1 + noise)
+        data[f"handling_time_B{index}"] = base_times * factor
     return data
 
 
