@@ -97,7 +97,7 @@ def assign_berths(data):
         })
 
     # 各バースの割当順を守る。バースごとに空く時刻を管理し、別バースは並行して動く。
-    actual_available = np.zeros(len(berth_columns))
+    actual_available = np.zeros(len(berth_columns)) # 指定した数の0をnp.zerosで作る
     for row in plan:
         index = int(row["assigned_berth"][1:]) - 1
         # 計画開始・実到着・同じバースの前船の完了をすべて満たしてから開始する。
