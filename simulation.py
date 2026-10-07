@@ -56,11 +56,9 @@ def apply_attack(data, target_ship, shift_hours):
     shift_hoursが負なら早い申告、正なら遅い申告。0未満の申告は0に丸める。
     元データ、実到着時刻、荷役時間、他船の申告時刻は変更しない。
     """
-    attacked = data.copy(deep=True)
+    attacked = data.copy(deep=True) # deep=trueにすることでデータをコピー元と共有しない
     target = attacked["ship"] == target_ship
-    if target.sum() != 1:
-        raise ValueError(f"対象船 {target_ship} が一意に見つかりません。")
-    original = attacked.loc[target, "actual_arrival_time"]
+    original = attacked.loc[target, "actual_arrival_time"] # targetがTrueの行にあるactual_arrival_time列を取り出す
     # シミュレーション開始前の時刻を申告しないものとする。
     attacked.loc[target, "reported_arrival_time"] = (original + shift_hours).clip(lower=0)
     return attacked

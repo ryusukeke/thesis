@@ -68,14 +68,13 @@ def main():
     parser.add_argument("--ships", type=int, default=10, help="船数（初期値10）")
     parser.add_argument("--berths", type=int, default=3, help="バース数（初期値3）")
     parser.add_argument("--seed", type=int, default=42, help="最初の乱数seed（初期値42）")
-    parser.add_argument("--attack-ship", default="V5", help="改ざん対象船（初期値V5）")
     parser.add_argument("--shift", type=float, default=4.0, help="早める・遅らせる時間（初期値4）")
     parser.add_argument("--output", type=Path, default=Path("results"), help="保存先（初期値results）")
     parser.add_argument("--no-plot", action="store_true", help="グラフを作らずCSVとJSONを保存する")
     parser.add_argument("--no-save", action="store_true", help="ファイルを保存せずターミナルに結果だけ表示する")
     args = parser.parse_args()
     try:
-        results = run_experiment(args.trials, args.ships, args.berths, args.seed, args.attack_ship, args.shift)
+        results = run_experiment(args.trials, args.ships, args.berths, args.seed, shift_hours=args.shift)
     except ValueError as error:
         parser.error(str(error))
 
@@ -87,7 +86,7 @@ def main():
         config = {
             "trials": args.trials, "num_ships": args.ships, "num_berths": args.berths,
             "first_seed": args.seed, "last_seed": args.seed + args.trials - 1,
-            "target_ship": args.attack_ship, "shift_hours": args.shift,
+            "target_ship": "V5", "shift_hours": args.shift,
             "mean_interarrival_time": MEAN_INTERARRIVAL_TIME,
             "handling_shape": HANDLING_SHAPE, "handling_scale": HANDLING_SCALE,
             "handling_time_model": "base_time_times_berth_factor",
@@ -101,13 +100,13 @@ def main():
         (args.output / "waiting_time_comparison.png").unlink(missing_ok=True)
         if not args.no_plot:
             try:
-                save_plot(results["summary"], args.output, args.attack_ship, args.shift)
+                save_plot(results["summary"], args.output, "V5", args.shift)
             except ModuleNotFoundError as error:
                 if error.name != "matplotlib":
                     raise
                 print("グラフの作成には matplotlib が必要です。CSVの保存は完了しました。")
 
-    print(f"\n{args.trials}回の比較：船{args.ships}隻、バース{args.berths}、対象{args.attack_ship}、改ざん幅±{args.shift:g}時間")
+    print(f"\n{args.trials}回の比較：船{args.ships}隻、バース{args.berths}、対象V5、改ざん幅±{args.shift:g}時間")
     print("評価は実到着時刻から計算。各試行で3条件に同じ船舶データを使用。\n")
     # 集計表を「行＝条件、列＝指標」に並べ替え、4指標の試行平均を表示する。
     means = results["summary"].pivot(index="scenario", columns="metric", values="mean")
