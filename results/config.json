@@ -9,7 +9,7 @@
   "mean_interarrival_time": 2.37,
   "handling_shape": 2,
   "handling_scale": 2.4,
-  "handling_noise": 0.05,
+  "handling_time_model": "base_time_times_berth_factor",
   "berth_factors": [
     0.9,
     1.0,
