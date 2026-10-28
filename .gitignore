@@ -5,6 +5,15 @@ __pycache__/
 .mplconfig/
 /AGENTS.md
 
+# ローカルの認証情報（空の記入例だけをGitに含める）
+.env
+.env.*
+.env~
+!.env.example
+
+# 神戸港EDIの取得原本と日々更新するExcel
+/data/kobe_port/
+
 # ローカルで保管する先行研究の資料
 /先行研究/*
 !/先行研究/資料の入手元.md
