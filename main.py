@@ -1,198 +1,213 @@
-"""到着時刻改ざんの比較実験を実行し、結果を表示・保存する。"""
+"""4バースの到着情報改ざん実験を実行し、設定・CSV・論文用グラフを保存する。"""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from simulation import (
-    HANDLING_SCALE,
-    HANDLING_SHAPE,
-    MEAN_INTERARRIVAL_TIME,
-    POLICIES,
-    run_experiment,
-)
+from port_collection.analyze_port_data import analyze_forecasts, save_reference
+from simulation import (HANDLING_SCALE, HANDLING_SHAPE, MEAN_INTERARRIVAL_TIME,
+                        POLICIES, run_experiment)
+
+ROOT = Path(__file__).resolve().parent
+POLICY_NAMES = {"fixed": "A: Fixed plan", "same_berth": "B: Same berth",
+                "reassign": "C: Berth changes", "unrestricted": "D: Unrestricted"}
+COLORS = {"fixed": "#365c78", "same_berth": "#c57c28", "reassign": "#34836c", "unrestricted": "#97577c"}
 
 
-SCENARIO_NAMES = {"normal": "正常時", "early": "早く申告", "late": "遅く申告"}
-POLICY_NAMES = {"fixed": "固定計画", "same_berth": "同じバース内で調整", "reassign": "バース変更あり"}
-PLOT_POLICY_NAMES = {"fixed": "Fixed plan", "same_berth": "Same berth", "reassign": "Berth changes"}
-METRIC_NAMES = {
-    "total_waiting_time": "総待ち時間",
-    "average_waiting_time": "平均待ち時間",
-    "max_waiting_time": "最大待ち時間",
-    "total_turnaround_time": "総在港時間",
-    "average_turnaround_time": "平均在港時間",
-    "completion_time": "全船の荷役完了時刻",
-    "target_waiting_time": "対象船の待ち時間",
-    "other_average_waiting_time": "対象船以外の平均待ち時間",
-}
-
-
-def save_plot(summary, output_dir, target_ship, shift_hours):
-    """全船と対象船以外の平均待ち時間を、条件・ルール別のPNGにする。
-
-    集計済みの試行平均を使う。日本語フォントへの依存を避けて英語表記にする。
-    """
+def plot_results(results, output, full_study):
+    """集計条件を図に明示し、PNGとPDFを保存する。誤差棒の上側は試行の標本標準偏差。下側は描かない。"""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    colors = ["#54788b", "#b68045", "#986060"]
-    policies = summary["policy"].unique()
-    positions = np.arange(3)
-    width = 0.8 / len(policies)
-    for axis, metric, title in zip(
-        axes,
-        ["average_waiting_time", "other_average_waiting_time"],
-        ["All ships", "Ships other than the target"],
-    ):
-        for index, policy in enumerate(policies):
-            rows = summary[(summary["metric"] == metric) & (summary["policy"] == policy)]
-            rows = rows.set_index("scenario").loc[list(SCENARIO_NAMES)]
-            offset = (index - (len(policies) - 1) / 2) * width
-            bars = axis.bar(positions + offset, rows["mean"], width,
-                            color=colors[index], label=PLOT_POLICY_NAMES[policy])
-            axis.bar_label(bars, fmt="%.3f", padding=3, fontsize=8)
-        axis.set_xticks(positions, ["Normal", "Early report", "Late report"])
-        axis.set_title(title)
-        axis.set_ylabel("Average waiting time (hours)")
-        axis.set_ylim(0, max(summary.loc[summary["metric"] == metric, "mean"].max() * 1.25, 0.1))
-        axis.legend(fontsize=8)
+    summary = results["summary"]
+    main = summary[(summary.experiment_group == "main") & (summary.metric == "other_average_waiting_time")]
+    position = "middle" if full_study else "specified"
+    panels = [("01_attack_width", "shift_hours", main[(main.demand_multiplier == 1) & (main.target_position == position)],
+               "Report shift magnitude (hours)", "Baseline demand; middle target" if full_study else "Single setting")]
+    if full_study:
+        panels.extend([
+            ("02_demand", "demand_multiplier", main[(main.target_position == "middle") & (main.shift_hours == 4)],
+             "Candidate demand / observed forecast reference", "Middle target; report shift +/-4 h"),
+            ("03_target_position", "target_position", main[(main.demand_multiplier == 1) & (main.shift_hours == 4)],
+             "Target position in actual arrival order", "Baseline demand; report shift +/-4 h"),
+        ])
+    for filename, x, data, xlabel, subtitle in panels:
+        fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.5), sharey=True)
+        positions = ["early", "middle", "late"] if x == "target_position" else sorted(data[x].unique())
+        for axis, scenario, title in zip(axes, ["early", "late"], ["Early report", "Late report"]):
+            for policy in data.policy.unique():
+                rows = data[(data.scenario == scenario) & (data.policy == policy)].set_index(x).reindex(positions)
+                xvalues = range(len(positions)) if x == "target_position" else positions
+                deviations = rows["std"].fillna(0).to_numpy()
+                axis.errorbar(xvalues, rows["mean"], yerr=np.array([np.zeros(len(rows)), deviations]),
+                              marker="o", capsize=3, color=COLORS[policy], label=POLICY_NAMES[policy])
+            axis.set_xticks(range(len(positions)) if x == "target_position" else positions, positions)
+            axis.set_xlabel(xlabel)
+            axis.set_title(title)
+            axis.set_ylim(bottom=0)
+            axis.grid(axis="y", alpha=0.2)
+        axes[0].set_ylabel("Other ships: average waiting time (hours)")
+        axes[1].legend(fontsize=8)
+        fig.suptitle(subtitle + "; whiskers: +1 sample SD across paired input plans", fontsize=11)
+        fig.tight_layout()
+        for suffix in ("png", "pdf"):
+            fig.savefig(output / f"{filename}.{suffix}", dpi=180)
+        plt.close(fig)
+    if not full_study:
+        return
+
+    # 同じ中盤・4時間の条件で、前倒し0/2/無制限を比べる。0だけ補足実験から取る。
+    subset = summary[(summary.demand_multiplier == 1) & (summary.target_position == "middle")
+                     & (summary.shift_hours == 4) & (summary.metric == "other_average_waiting_time")]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True)
+    for axis, scenario in zip(axes, ("early", "late")):
+        values, errors = [], []
+        for group, policy in (("sensitivity", "reassign"), ("main", "reassign"), ("main", "unrestricted")):
+            row = subset[(subset.experiment_group == group) & (subset.policy == policy) & (subset.scenario == scenario)].iloc[0]
+            values.append(row["mean"])
+            errors.append(0 if pd.isna(row["std"]) else row["std"])
+        axis.bar(["0 h", "2 h", "Unlimited"], values, yerr=np.array([np.zeros(len(errors)), errors]), capsize=3,
+                 color=["#365c78", COLORS["reassign"], COLORS["unrestricted"]])
+        axis.set_title(f"{scenario.capitalize()} report")
+        axis.set_ylim(bottom=0)
+        axis.set_xlabel("Permitted start before updated planned time")
         axis.grid(axis="y", alpha=0.2)
         axis.set_axisbelow(True)
-    fig.suptitle(f"Coordinated baseline: {target_ship} report shifted by +/-{shift_hours:g} h ({rows['trials'].iloc[0]} paired trials)")
+    axes[0].set_ylabel("Other ships: average waiting time (hours)")
+    fig.suptitle("Berth changes allowed; baseline demand; middle target; +/-4 h; +1 sample SD", fontsize=10)
     fig.tight_layout()
-    fig.savefig(output_dir / "waiting_time_comparison.png", dpi=180)
+    for suffix in ("png", "pdf"):
+        fig.savefig(output / f"04_advance_limit.{suffix}", dpi=180)
+    plt.close(fig)
+
+    # 平均を代表する例ではない。事前指定セル内でAの他船待ちが最大の例を説明用に選ぶ。
+    runs = results["run_metrics"]
+    examples = runs[(runs.experiment_group == "main") & (runs.demand_multiplier == 1)
+                    & (runs.target_position == "middle") & (runs.shift_hours == 4)
+                    & (runs.scenario == "early") & (runs.policy == "fixed")]
+    example = examples.sort_values(["other_average_waiting_time", "trial"], ascending=[False, True]).iloc[0]
+    schedules = results["schedules"]
+    schedules = schedules[(schedules.experiment_group == "main") & (schedules.demand_multiplier == 1)
+                          & (schedules.trial == example.trial)]
+    attacked = schedules[(schedules.target_position == "middle") & (schedules.shift_hours == 4)
+                         & (schedules.scenario == "early")]
+    target = example.target_ship
+    target_arrival = attacked.loc[attacked.ship == target, "actual_arrival_time"].iloc[0]
+    start, end = max(0, target_arrival - 8), target_arrival + 24
+    fig, axes = plt.subplots(5, 1, figsize=(12, 10), sharex=True)
+    normal = schedules[(schedules.scenario == "normal") & (schedules.policy == "fixed")]
+    for axis, (label, table) in zip(axes, [("Normal", normal)] + [(POLICY_NAMES[p], attacked[attacked.policy == p]) for p in POLICIES]):
+        for _, row in table.iterrows():
+            if row.completion_time <= start or row.start_time >= end:
+                continue
+            berth = int(row.assigned_berth[1:])
+            axis.barh(berth, row.handling_time, left=row.start_time, height=0.65,
+                      color="#b84e45" if row.ship == target else "#6f95ac", edgecolor="white")
+            x = max(start, row.start_time)
+            if min(end, row.completion_time) - x > 1:
+                axis.text(x + 0.1, berth, row.ship, va="center", fontsize=7, clip_on=True)
+        axis.axvline(target_arrival, color="#555555", linestyle="--", linewidth=1)
+        axis.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
+        axis.set_title(label, loc="left", fontsize=10)
+        axis.grid(axis="x", alpha=0.15)
+    axes[-1].set_xlim(start, end)
+    axes[-1].set_xlabel("Hours since beginning; dashed line: target actual arrival")
+    fig.suptitle(f"Illustrative maximum in predefined cell: seed {int(example.seed)}, {target}, early report -4 h", fontsize=11)
+    fig.tight_layout()
+    for suffix in ("png", "pdf"):
+        fig.savefig(output / f"05_schedule_example.{suffix}", dpi=180)
     plt.close(fig)
 
 
 def main():
-    """コマンド引数で実験を実行し、集計結果を表示する。通常は結果も保存する。
-
-    --no-saveでは全保存処理を省略し、--no-plotではグラフ保存だけを省略する。
-    """
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--trials", type=int, default=10, help="試行回数（初期値10）")
+    parser.add_argument("--study", action="store_true", help="神戸港の予定規模を参照した主実験と補足実験を実行")
+    parser.add_argument("--trials", type=int, default=10)
     period = parser.add_mutually_exclusive_group()
-    period.add_argument("--ships", type=int, help="期間の代わりに固定隻数を指定する")
-    period.add_argument("--duration", type=float, help="到着候補を生成する期間（時間、初期値168）。調整後の到着は期間外も含む")
-    parser.add_argument("--berths", type=int, default=3, help="バース数（初期値3）")
-    parser.add_argument("--seed", type=int, default=42, help="最初の乱数seed（初期値42）")
-    parser.add_argument("--shift", type=float, default=4.0, help="早める・遅らせる時間（初期値4）")
-    parser.add_argument("--interval", type=float, default=MEAN_INTERARRIVAL_TIME,
-                        help="調整前の到着候補の平均間隔（時間、初期値2.37は暫定値）")
-    parser.add_argument("--policy", choices=("all", *POLICIES), default="all",
-                        help="比較するルール（初期値all：3ルール）")
-    parser.add_argument("--output", type=Path, default=Path("results_coordinated"), help="保存先（初期値results_coordinated）")
-    parser.add_argument("--no-plot", action="store_true", help="グラフを作らずCSVとJSONを保存する")
-    parser.add_argument("--no-save", action="store_true", help="ファイルを保存せずターミナルに結果だけ表示する")
+    period.add_argument("--ships", type=int, help="単一設定の確認用の固定隻数")
+    period.add_argument("--duration", type=float, default=None)
+    parser.add_argument("--berths", type=int, default=4)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--shift", type=float, default=4.0, help="単一設定での変更幅。主実験は2・4・8時間")
+    parser.add_argument("--interval", type=float, default=None, help="候補の平均間隔。主実験の省略時は神戸港予定の集計値")
+    parser.add_argument("--advance", type=float, default=2.0, help="同じバース内調整・バース変更の前倒し上限")
+    parser.add_argument("--policy", choices=("all", *POLICIES), default="all")
+    parser.add_argument("--raw", type=Path, default=ROOT / "data/kobe_port/raw")
+    parser.add_argument("--through", default="2026-11-04", help="参照するCSVの取得日上限")
+    parser.add_argument("--output", type=Path, default=Path("results/final_20261105"))
+    parser.add_argument("--no-plot", action="store_true")
+    parser.add_argument("--no-save", action="store_true")
     args = parser.parse_args()
-    # 固定隻数なら期間は使わず、指定がなければ1週間にする。
-    duration = args.duration
-    num_ships = 10
-    if args.ships is not None:
-        duration = None
-        num_ships = args.ships
-    elif duration is None:
-        duration = 168.0
-    if args.policy == "all":
-        policies = POLICIES
-    else:
-        policies = (args.policy,)
+    if args.study and (args.ships is not None or args.policy != "all" or args.berths != 4
+                       or args.advance != 2 or args.duration not in (None, 168.0)):
+        parser.error("主実験は168時間・4バース・全方式・前倒し上限2時間で実行します。")
+    if not args.no_save and args.output.exists() and any(args.output.iterdir()):
+        parser.error("保存先にファイルがあります。既存結果を残すため、別の--outputを指定してください。")
+    duration = None if args.ships is not None else (args.duration if args.duration is not None else 168.0)
+    policies = POLICIES if args.policy == "all" else (args.policy,)
     try:
-        results = run_experiment(trials=args.trials, num_ships=num_ships,
-                                 num_berths=args.berths, seed=args.seed, shift_hours=args.shift,
-                                 policies=policies, duration_hours=duration,
-                                 mean_interarrival_time=args.interval)
+        reference = None
+        if args.study:
+            reference, daily, selected = analyze_forecasts(args.raw, args.through)
+        interval = args.interval if args.interval is not None else (reference["mean_candidate_interval_hours"] if reference else MEAN_INTERARRIVAL_TIME)
+        results = run_experiment(trials=args.trials, num_ships=args.ships if args.ships is not None else 10, num_berths=args.berths,
+                                 seed=args.seed, shift_hours=args.shift, policies=policies,
+                                 duration_hours=duration, mean_interarrival_time=interval,
+                                 early_start_limit=args.advance, full_study=args.study)
     except ValueError as error:
         parser.error(str(error))
-
-    # 保存省略時はフォルダ作成も既存グラフの削除も行わない。
     if not args.no_save:
         args.output.mkdir(parents=True, exist_ok=True)
         for name, table in results.items():
             table.to_csv(args.output / f"{name}.csv", index=False, encoding="utf-8-sig")
-        ship_counts = results["run_metrics"].groupby("trial")["num_ships"].first()
-        ship_data = results["ship_data"]
-        after_period = (ship_data["actual_arrival_time"] >= duration if duration is not None
-                        else pd.Series(False, index=ship_data.index))
+        if reference:
+            save_reference(args.output, reference, daily, selected)
         config = {
-            "model_version": "coordinated_arrivals_v1",
-            "trials": args.trials, "num_ships": args.ships, "num_berths": args.berths,
-            "duration_hours": duration, "ships_per_trial": ship_counts.to_dict(),
-            "duration_applies_to": "candidate_arrival_time",
-            "arrival_adjustment": "align_actual_and_reported_arrivals_with_normal_plan_start",
-            "arrival_adjustment_limit_hours": None,
-            "arrival_adjustment_total_hours_per_trial": ship_data.groupby("trial")["arrival_adjustment_time"].sum().to_dict(),
-            "last_actual_arrival_hours_per_trial": ship_data.groupby("trial")["actual_arrival_time"].max().to_dict(),
-            "adjusted_arrivals_after_period_per_trial": after_period.groupby(ship_data["trial"]).sum().to_dict(),
-            "first_seed": args.seed, "last_seed": args.seed + args.trials - 1,
-            "target_ship": "V5", "shift_hours": args.shift,
-            "mean_interarrival_time": args.interval,
-            "handling_shape": HANDLING_SHAPE, "handling_scale": HANDLING_SCALE,
-            "handling_time_model": "base_time_times_berth_factor",
-            "berth_factors": np.linspace(0.9, 1.1, args.berths).tolist() if args.berths > 1 else [1.0],
-            "berth_factor_assignment": "random_permutation_per_ship",
-            "time_unit": "hours", "policies": list(policies),
-            "plan_update": "keep_normal_reservations_replan_if_report_changes_before_operations",
-            "normal_waiting_time": "zero_required_for_all_policies",
-            "reassignment_rule": "shortest_handling_time_among_free_berths_in_plan_order",
-            "initial_berth_state": "all_empty",
-            "first_arrival": "first_interarrival_after_zero" if duration is not None else "time_zero",
-            "simultaneous_events": "arrivals_and_completions_together",
-            "completion_after_period_end": "retain_and_finish_all_candidate_ships_including_adjusted_arrivals",
+            "model_version": "discrete_4berth_bounded_advance_v2", "full_study": args.study,
+            "trials_per_cell": args.trials, "first_seed": args.seed, "last_seed": args.seed + args.trials - 1,
+            "num_berths": args.berths, "num_ships": args.ships, "candidate_duration_hours": duration,
+            "base_mean_candidate_interval_hours": interval, "interval_source": "explicit_argument" if args.interval is not None else ("kobe_day_ahead_forecasts" if reference else "rounded_assumption_3h"),
+            "demand_multipliers": [0.75, 1.0, 1.5] if args.study else [1.0],
+            "target_positions": [0.1, 0.5, 0.9] if args.study else ["V5"],
+            "shift_magnitudes_hours": [2.0, 4.0, 8.0] if args.study else [args.shift],
+            "main_early_start_limit_hours": args.advance, "unrestricted_early_start_limit_hours": None,
+            "sensitivity": "reassign, middle target, +/-4h, limit0" if args.study else None,
+            "policies": list(policies), "handling_shape": HANDLING_SHAPE, "handling_scale": HANDLING_SCALE,
+            "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
+            "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
+            "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
+            "normal_arrival_adjustment": "normal_reserved_start; no upper limit; no speed or fuel model",
+            "plan_update": "keep_normal_reservations; replan_once_if_report_changes",
+            "initial_berth_state": "all_empty", "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
+            "same_time_order": "arrivals_and_releases_and_completions_together; stable_input_order",
+            "distinct_normal_plans": len(results["plan_diagnostics"]),
+            "main_attack_executions": int(((results["run_metrics"].experiment_group == "main") & (results["run_metrics"].scenario != "normal")).sum()),
+            "sensitivity_attack_executions": int(((results["run_metrics"].experiment_group == "sensitivity") & (results["run_metrics"].scenario != "normal")).sum()),
+            "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
             "numpy_version": np.__version__, "pandas_version": pd.__version__,
+            "code_sha256": {name: hashlib.sha256((ROOT/name).read_bytes()).hexdigest()
+                            for name in ("simulation.py", "main.py", "port_collection/analyze_port_data.py")},
+            "sources": {"berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
+                        "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",
+                        "information_manipulation": "https://doi.org/10.1088/1742-6596/2867/1/012047"},
         }
-        (args.output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        # 過去のグラフが新しいCSVと混在しないようにする。
-        (args.output / "waiting_time_comparison.png").unlink(missing_ok=True)
+        (args.output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
         if not args.no_plot:
-            try:
-                save_plot(results["summary"], args.output, "V5", args.shift)
-            except ModuleNotFoundError as error:
-                if error.name != "matplotlib":
-                    raise
-                print("グラフの作成には matplotlib が必要です。CSVの保存は完了しました。")
-
-    ship_counts = results["run_metrics"].groupby("trial")["num_ships"].first()
-    period_text = f"到着候補の生成期間{duration:g}時間" if duration is not None else f"固定{args.ships}隻"
-    print(f"\n{args.trials}回の比較：{period_text}、船{ship_counts.min()}〜{ship_counts.max()}隻、バース{args.berths}、対象V5、改ざん幅±{args.shift:g}時間")
-    print("評価は実到着時刻から計算。各試行で全条件・全ルールに同じ船舶データを使用。")
-    print("正常計画の荷役開始に到着を合わせてから申告を改ざんします。正常時は全船の待ち0を確認済みです。")
-    print("到着候補の間隔・荷役係数は仮定値です。速度・燃料は計算せず、到着調整に上限は設けていません。")
-    adjustments = results["ship_data"]["arrival_adjustment_time"]
-    print(f"到着候補から後ろへ調整した時間：全船平均{adjustments.mean():.3f}時間、最大{adjustments.max():.3f}時間（待ち時間とは別に記録）。")
-    if duration is not None:
-        beyond = int((results["ship_data"]["actual_arrival_time"] >= duration).sum())
-        print(f"調整後の到着が期間末以降となった船：全試行合計{beyond}隻。除外せず荷役完了まで計算します。")
-    print()
-    # 集計表を「行＝条件、列＝指標」に並べ替え、4指標の試行平均を表示する。
-    display_metrics = ["average_waiting_time", "average_turnaround_time", "target_waiting_time", "other_average_waiting_time"]
-    for policy in policies:
-        print(f"【{POLICY_NAMES[policy]}】")
-        policy_summary = results["summary"][results["summary"]["policy"] == policy]
-        means = policy_summary.pivot(index="scenario", columns="metric", values="mean")
-        print(means.loc[list(SCENARIO_NAMES), display_metrics].rename(index=SCENARIO_NAMES, columns=METRIC_NAMES).round(3).to_string())
-        normal_runs = results["run_metrics"]
-        normal_runs = normal_runs[(normal_runs["policy"] == policy) & (normal_runs["scenario"] == "normal")]
-        print(f"正常時に待ち時間が出た試行：{int((normal_runs['waiting_ships'] > 0).sum())}/{args.trials}回\n")
-    print("\n正常時からの平均待ち時間の変化（正なら悪化、負なら改善）")
-    comparison = results["paired_comparison"]
-    for _, row in comparison[comparison["metric"] == "average_waiting_time"].iterrows():
-        print(f"{POLICY_NAMES[row['policy']]}・{SCENARIO_NAMES[row['scenario']]}: {row['mean_difference']:+.3f}時間 / 悪化{row['increased_trials']}回、改善{row['decreased_trials']}回、変化なし{row['unchanged_trials']}回")
-    if "fixed" in policies and len(policies) > 1:
-        print("\n対象船以外への攻撃影響の軽減量（固定計画に比べて正なら軽減）")
-        for _, row in comparison[comparison["metric"] == "other_average_waiting_time"].iterrows():
-            if row["policy"] != "fixed" and np.isfinite(row["mean_mitigation_vs_fixed"]):
-                print(f"{POLICY_NAMES[row['policy']]}・{SCENARIO_NAMES[row['scenario']]}: {row['mean_mitigation_vs_fixed']:+.3f}時間")
-    if args.no_save:
-        print("\nファイルは保存していません。")
-    else:
-        print(f"\n保存先: {args.output.resolve()}")
+            plot_results(results, args.output, args.study)
+    runs = results["run_metrics"]
+    normal = runs[runs.scenario == "normal"]
+    attacks = runs[runs.scenario != "normal"]
+    print(f"正常計画 {len(results['plan_diagnostics'])}組、主実験の改ざん運用 {len(attacks[attacks.experiment_group == 'main'])}ケース、補足 {len(attacks[attacks.experiment_group == 'sensitivity'])}ケース")
+    print(f"正常時の最大待ち時間：{normal.max_waiting_time.max():.9f}時間。到着候補の基準平均間隔：{interval:.6f}時間。")
+    print("下表は全主実験条件を同じ重みで平均した概要です。条件別の比較はsummary.csvを参照してください。")
+    print(attacks[attacks.experiment_group == "main"].groupby(["policy", "scenario"])[["other_average_waiting_time", "other_waiting_ships", "berth_changes"]].mean().round(4).to_string())
+    print("実測の荷役時間・実待ち時間による検証ではありません。到着調整量はplan_diagnostics.csvに記録します。")
+    print("保存なし" if args.no_save else f"保存先：{args.output.resolve()}")
 
 
 if __name__ == "__main__":
