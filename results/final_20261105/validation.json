@@ -1,0 +1,378 @@
+{
+  "validated_schedule_executions": 2370,
+  "validated_schedule_rows": 155788,
+  "normal_metrics": 390,
+  "normal_max_waiting_hours": 0.0,
+  "overall_equal_cell_means": [
+    {
+      "policy": "fixed",
+      "scenario": "early",
+      "other_average_waiting_time": 0.06976301427258319,
+      "other_waiting_ships": 2.5074074074074075,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "fixed",
+      "scenario": "late",
+      "other_average_waiting_time": 0.028182902780074313,
+      "other_waiting_ships": 2.5592592592592593,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "reassign",
+      "scenario": "early",
+      "other_average_waiting_time": 0.0059551221945127126,
+      "other_waiting_ships": 0.7037037037037037,
+      "berth_changes": 3.6296296296296298
+    },
+    {
+      "policy": "reassign",
+      "scenario": "late",
+      "other_average_waiting_time": 0.020281355681994906,
+      "other_waiting_ships": 1.9851851851851852,
+      "berth_changes": 3.1185185185185187
+    },
+    {
+      "policy": "same_berth",
+      "scenario": "early",
+      "other_average_waiting_time": 0.037944002053267235,
+      "other_waiting_ships": 2.1703703703703705,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "same_berth",
+      "scenario": "late",
+      "other_average_waiting_time": 0.027033734294749964,
+      "other_waiting_ships": 2.4,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "unrestricted",
+      "scenario": "early",
+      "other_average_waiting_time": 0.0,
+      "other_waiting_ships": 0.0,
+      "berth_changes": 3.72962962962963
+    },
+    {
+      "policy": "unrestricted",
+      "scenario": "late",
+      "other_average_waiting_time": 0.0,
+      "other_waiting_ships": 0.0,
+      "berth_changes": 4.729629629629629
+    }
+  ],
+  "policy_pair_counts_over_540_cells": {
+    "fixed_to_same_berth": {
+      "improved": 92,
+      "worsened": 8,
+      "unchanged": 440,
+      "mean_difference_hours": -0.016484090352320156,
+      "worst_worsening_hours": 0.136078421980129
+    },
+    "same_berth_to_reassign": {
+      "improved": 178,
+      "worsened": 16,
+      "unchanged": 346,
+      "mean_difference_hours": -0.019370629235754788,
+      "worst_worsening_hours": 0.08876112596968466
+    },
+    "fixed_to_reassign": {
+      "improved": 206,
+      "worsened": 19,
+      "unchanged": 315,
+      "mean_difference_hours": -0.03585471958807494,
+      "worst_worsening_hours": 0.08546419037425357
+    },
+    "reassign_to_unrestricted": {
+      "improved": 88,
+      "worsened": 0,
+      "unchanged": 452,
+      "mean_difference_hours": -0.013118238938253809,
+      "worst_worsening_hours": 0.0
+    }
+  },
+  "reassignment_worsening_examples": [
+    {
+      "demand_multiplier": 1.5,
+      "trial": 8,
+      "target_position": "early",
+      "shift_hours": 4.0,
+      "scenario": "late",
+      "fixed": 0.40878205489986474,
+      "reassign": 0.4568134945472356,
+      "same_berth": 0.3680523685775509,
+      "unrestricted": 0.0,
+      "delta": 0.08876112596968466
+    },
+    {
+      "demand_multiplier": 1.5,
+      "trial": 1,
+      "target_position": "early",
+      "shift_hours": 8.0,
+      "scenario": "late",
+      "fixed": 0.42432937043207963,
+      "reassign": 0.5097935608063332,
+      "same_berth": 0.42432937043207963,
+      "unrestricted": 0.0,
+      "delta": 0.08546419037425357
+    },
+    {
+      "demand_multiplier": 1.5,
+      "trial": 5,
+      "target_position": "middle",
+      "shift_hours": 4.0,
+      "scenario": "early",
+      "fixed": 0.24937204441510588,
+      "reassign": 0.2856729198931425,
+      "same_berth": 0.24937204441510588,
+      "unrestricted": 0.0,
+      "delta": 0.03630087547803659
+    }
+  ],
+  "baseline_4h_middle": [
+    {
+      "policy": "fixed",
+      "scenario": "early",
+      "other_average_waiting_time": 0.04850818253563906,
+      "target_waiting_time": 0.0,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "fixed",
+      "scenario": "late",
+      "other_average_waiting_time": 0.007455364509744007,
+      "target_waiting_time": 4.177901757313393,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "reassign",
+      "scenario": "early",
+      "other_average_waiting_time": 0.0,
+      "target_waiting_time": 0.0,
+      "berth_changes": 3.5
+    },
+    {
+      "policy": "reassign",
+      "scenario": "late",
+      "other_average_waiting_time": 0.004797478921464161,
+      "target_waiting_time": 2.377901757313393,
+      "berth_changes": 2.9
+    },
+    {
+      "policy": "same_berth",
+      "scenario": "early",
+      "other_average_waiting_time": 0.04850818253563906,
+      "target_waiting_time": 0.0,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "same_berth",
+      "scenario": "late",
+      "other_average_waiting_time": 0.004556813785106325,
+      "target_waiting_time": 2.5625696422367454,
+      "berth_changes": 0.0
+    },
+    {
+      "policy": "unrestricted",
+      "scenario": "early",
+      "other_average_waiting_time": 0.0,
+      "target_waiting_time": 0.0,
+      "berth_changes": 3.5
+    },
+    {
+      "policy": "unrestricted",
+      "scenario": "late",
+      "other_average_waiting_time": 0.0,
+      "target_waiting_time": 0.0,
+      "berth_changes": 2.2
+    }
+  ],
+  "gantt_example": {
+    "seed": 46,
+    "trial": 5,
+    "target_ship": "V35",
+    "other_average_waiting_time": 0.16498263657841156
+  },
+  "normal_diagnostics": [
+    {
+      "demand_multiplier": 0.75,
+      "ships_mean": 45.7,
+      "ships_min": 36,
+      "ships_max": 57,
+      "adjustment_mean": 0.07227951012801276,
+      "adjustment_max": 5.766819311701141,
+      "latest_arrival": 171.39043538076766,
+      "arrivals_after_period": 1,
+      "gap_mean": 8.850760080198773
+    },
+    {
+      "demand_multiplier": 1.0,
+      "ships_mean": 61.1,
+      "ships_min": 51,
+      "ships_max": 70,
+      "adjustment_mean": 0.21013238052530533,
+      "adjustment_max": 6.185938012925789,
+      "latest_arrival": 167.92088422742663,
+      "arrivals_after_period": 0,
+      "gap_mean": 5.4845172059361795
+    },
+    {
+      "demand_multiplier": 1.5,
+      "ships_mean": 90.4,
+      "ships_min": 78,
+      "ships_max": 99,
+      "adjustment_mean": 1.1550564053272085,
+      "adjustment_max": 12.290694354307334,
+      "latest_arrival": 174.2320806272513,
+      "arrivals_after_period": 11,
+      "gap_mean": 2.0799139123534
+    }
+  ],
+  "all_unrestricted_attack_waiting_zero": true,
+  "checks": [
+    "all ships retained",
+    "physical constraints",
+    "handling time lookup",
+    "only target report changed",
+    "initial plans shared",
+    "all eleven metrics reconstructed",
+    "summaries and paired differences reconstructed",
+    "normal zero",
+    "source hashes",
+    "forecast 103/13",
+    "five PNG/PDF pairs"
+  ],
+  "sensitivity_means": [
+    {
+      "demand_multiplier": 0.75,
+      "scenario": "early",
+      "limit2": 0.0,
+      "limit0": 0.0050768886830528685,
+      "unlimited": 0.0
+    },
+    {
+      "demand_multiplier": 0.75,
+      "scenario": "late",
+      "limit2": 0.00549716504607223,
+      "limit0": 0.005966287480348572,
+      "unlimited": 0.0
+    },
+    {
+      "demand_multiplier": 1.0,
+      "scenario": "early",
+      "limit2": 0.0,
+      "limit0": 0.01107183605697111,
+      "unlimited": 0.0
+    },
+    {
+      "demand_multiplier": 1.0,
+      "scenario": "late",
+      "limit2": 0.004797478921464161,
+      "limit0": 0.007455364509744007,
+      "unlimited": 0.0
+    },
+    {
+      "demand_multiplier": 1.5,
+      "scenario": "early",
+      "limit2": 0.04026002907586342,
+      "limit0": 0.08856035976622698,
+      "unlimited": 0.0
+    },
+    {
+      "demand_multiplier": 1.5,
+      "scenario": "late",
+      "limit2": 0.051223673530987654,
+      "limit0": 0.07487744897626702,
+      "unlimited": 0.0
+    }
+  ],
+  "sensitivity_2_vs_0": {
+    "improved": 21,
+    "worsened": 3,
+    "unchanged": 36
+  },
+  "worsening_example_details": [
+    {
+      "ship": "V18",
+      "actual_arrival_time": 40.39393779900593,
+      "planned_start_time": 41.64725557333706,
+      "planned_berth": "B1",
+      "assigned_berth": "B1",
+      "start_time": 41.64725557333706,
+      "completion_time": 44.07790075912109,
+      "handling_time": 2.430645185784029,
+      "waiting_time": 1.25331777433113,
+      "assigned_berth_C": "B4",
+      "start_time_C": 41.63876483292382,
+      "completion_time_C": 44.79860357444306,
+      "handling_time_C": 3.159838741519238,
+      "waiting_time_C": 1.2448270339178862,
+      "extra_wait_C": -0.008490740413243714,
+      "handling_change_C": 0.7291935557352089
+    },
+    {
+      "ship": "V19",
+      "actual_arrival_time": 41.64725557333706,
+      "planned_start_time": 43.63876483292382,
+      "planned_berth": "B4",
+      "assigned_berth": "B4",
+      "start_time": 41.64725557333706,
+      "completion_time": 50.828936563763165,
+      "handling_time": 9.181680990426104,
+      "waiting_time": 0.0,
+      "assigned_berth_C": "B1",
+      "start_time_C": 41.64725557333706,
+      "completion_time_C": 53.583440860891,
+      "handling_time_C": 11.936185287553936,
+      "waiting_time_C": 0.0,
+      "extra_wait_C": 0.0,
+      "handling_change_C": 2.7545042971278324
+    },
+    {
+      "ship": "V20",
+      "actual_arrival_time": 43.55377654052517,
+      "planned_start_time": 44.07790075912109,
+      "planned_berth": "B1",
+      "assigned_berth": "B1",
+      "start_time": 44.07790075912109,
+      "completion_time": 53.961835081099025,
+      "handling_time": 9.883934321977932,
+      "waiting_time": 0.5241242185959223,
+      "assigned_berth_C": "B4",
+      "start_time_C": 44.79860357444306,
+      "completion_time_C": 57.64771819301437,
+      "handling_time_C": 12.849114618571312,
+      "waiting_time_C": 1.2448270339178862,
+      "extra_wait_C": 0.7207028153219639,
+      "handling_change_C": 2.9651802965933793
+    },
+    {
+      "ship": "V34",
+      "actual_arrival_time": 62.541074493040476,
+      "planned_start_time": 63.75447933331142,
+      "planned_berth": "B2",
+      "assigned_berth": "B2",
+      "start_time": 63.75447933331142,
+      "completion_time": 70.00034480062577,
+      "handling_time": 6.245865467314349,
+      "waiting_time": 1.2134048402709467,
+      "assigned_berth_C": "B1",
+      "start_time_C": 65.14622663251552,
+      "completion_time_C": 70.82428614825584,
+      "handling_time_C": 5.678059515740317,
+      "waiting_time_C": 2.605152139475045,
+      "extra_wait_C": 1.3917472992040985,
+      "handling_change_C": -0.5678059515740319
+    }
+  ],
+  "worsening_example_target": "V10",
+  "worsening_example_ships": 99,
+  "clamped_main_cases": 0,
+  "largest_other_wait_hours": 10.626088889213015,
+  "no_effect_main_cases_by_policy": {
+    "fixed": 301,
+    "reassign": 452,
+    "same_berth": 327,
+    "unrestricted": 540
+  }
+}

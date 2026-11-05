@@ -1,0 +1,62 @@
+{
+  "model_version": "discrete_4berth_bounded_advance_v2",
+  "full_study": true,
+  "trials_per_cell": 10,
+  "first_seed": 42,
+  "last_seed": 51,
+  "num_berths": 4,
+  "num_ships": null,
+  "candidate_duration_hours": 168.0,
+  "base_mean_candidate_interval_hours": 3.029126213592233,
+  "interval_source": "kobe_day_ahead_forecasts",
+  "demand_multipliers": [
+    0.75,
+    1.0,
+    1.5
+  ],
+  "target_positions": [
+    0.1,
+    0.5,
+    0.9
+  ],
+  "shift_magnitudes_hours": [
+    2.0,
+    4.0,
+    8.0
+  ],
+  "main_early_start_limit_hours": 2.0,
+  "unrestricted_early_start_limit_hours": null,
+  "sensitivity": "reassign, middle target, +/-4h, limit0",
+  "policies": [
+    "fixed",
+    "same_berth",
+    "reassign",
+    "unrestricted"
+  ],
+  "handling_shape": 2,
+  "handling_scale": 2.4,
+  "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
+  "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
+  "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
+  "normal_arrival_adjustment": "normal_reserved_start; no upper limit; no speed or fuel model",
+  "plan_update": "keep_normal_reservations; replan_once_if_report_changes",
+  "initial_berth_state": "all_empty",
+  "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
+  "same_time_order": "arrivals_and_releases_and_completions_together; stable_input_order",
+  "distinct_normal_plans": 30,
+  "main_attack_executions": 2160,
+  "sensitivity_attack_executions": 60,
+  "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+  "numpy_version": "2.5.1",
+  "pandas_version": "3.0.3",
+  "code_sha256": {
+    "simulation.py": "6764283455865aa25c1bfe211b06b82035e10823d8899f4a8cd7bee8433707d1",
+    "main.py": "d1e781c060d0f3cea00f26d8df2ce4651e956bf0dd80bd1eaaaaf1884b8c9427",
+    "port_collection/analyze_port_data.py": "248dea7e0f78d65967388d188655ad94a9338d6c8d26cc5e2b581db938ecf345"
+  },
+  "sources": {
+    "berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
+    "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",
+    "information_manipulation": "https://doi.org/10.1088/1742-6596/2867/1/012047"
+  }
+}
