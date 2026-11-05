@@ -24,10 +24,10 @@ METRICS = (
 
 def generate_ship_data(num_ships=10, num_berths=3, seed=42,
                        mean_interarrival_time=MEAN_INTERARRIVAL_TIME, duration_hours=None):
-    """各船の到着時刻・基準荷役時間・バース係数・バース別荷役時間を生成する。
+    """未調整の到着候補・基準荷役時間・バース別荷役時間を生成する。
 
     初期の申告到着時刻は実到着時刻と同じにし、係数を船ごとに並べ替えて
-    船とバースの相性を表す。生成した船舶データをDataFrameで返す。
+    船とバースの相性を表す。実験ではcreate_normal_plan()で到着を調整する。
     """
     rng = np.random.default_rng(seed)
     # 固定隻数は従来の計算を保つ。期間指定では、期間内の到着を順に作る。
@@ -109,6 +109,27 @@ def create_plan(data):
             "planned_completion_time": completion,
         })
     return pd.DataFrame(plan)
+
+
+def create_normal_plan(data):
+    """到着候補から予約を作り、到着を荷役開始に合わせた元データと計画を返す。
+
+    調整は攻撃前に1回だけ行う。速度や燃料は計算せず、到着候補を
+    後ろへ調整した時間を記録する。入力と荷役時間は変更しない。
+    """
+    normal_plan = create_plan(data)
+    start_times = normal_plan.set_index("ship")["planned_start_time"]
+    coordinated = data.copy(deep=True)
+    coordinated["candidate_arrival_time"] = data["actual_arrival_time"]
+    coordinated["actual_arrival_time"] = coordinated["ship"].map(start_times)
+    coordinated["reported_arrival_time"] = coordinated["actual_arrival_time"]
+    coordinated["arrival_adjustment_time"] = (
+        coordinated["actual_arrival_time"] - coordinated["candidate_arrival_time"]
+    )
+    # バース・順番・予約時刻を保持し、到着情報だけを調整後の値にそろえる。
+    normal_plan["actual_arrival_time"] = normal_plan["planned_start_time"]
+    normal_plan["reported_arrival_time"] = normal_plan["planned_start_time"]
+    return coordinated, normal_plan
 
 
 def execute_fixed_plan(plan):
@@ -255,10 +276,10 @@ def summarize_results(run_metrics):
 def run_experiment(trials=100, num_ships=10, num_berths=3, seed=42,
                    target_ship="V5", shift_hours=4.0, policies=("fixed",),
                    duration_hours=None, mean_interarrival_time=MEAN_INTERARRIVAL_TIME):
-    """同じ元データ・初期計画で正常・攻撃条件と運用ルールを比較する。
+    """待ち0の正常計画を基準に、同じ元データで攻撃条件・ルールを比較する。
 
-    各条件の計画は運用前に1回だけ作り、全ルールで共有する。
-    省略時は従来どおり固定計画だけを計算する。保存・表示は呼び出し元に任せる。
+    到着候補から正常計画を確定してから申告だけを改ざんし、全船の計画を更新する。
+    各条件の計画は全ルールで共有する。保存・表示は呼び出し元に任せる。
     """
     if trials < 1 or num_berths < 1 or seed < 0 or (duration_hours is None and num_ships < 2):
         raise ValueError("試行回数は1以上、船数は2以上、バース数は1以上、seedは0以上にしてください。")
@@ -280,11 +301,16 @@ def run_experiment(trials=100, num_ships=10, num_berths=3, seed=42,
                                   mean_interarrival_time, duration_hours)
         if len(data) < 2 or target_ship not in data["ship"].values:
             raise ValueError(f"試行{trial}（seed={trial_seed}）は{len(data)}隻で、比較対象{target_ship}を含められません。期間・到着間隔を見直してください。")
+        data, normal_plan = create_normal_plan(data)
         inputs.append(data.assign(trial=trial, seed=trial_seed))
         normal_schedules = {}
         for scenario, shift in (("normal", 0.0), ("early", -shift_hours), ("late", shift_hours)):
             scenario_data = apply_attack(data, target_ship, shift)
-            plan = create_plan(scenario_data)
+            # 変更幅0（または0への丸めで情報が変わらない場合）も同じ予約を使う。
+            if scenario_data["reported_arrival_time"].equals(data["reported_arrival_time"]):
+                plan = normal_plan.copy(deep=True)
+            else:
+                plan = create_plan(scenario_data)
             plans.append(plan.assign(trial=trial, seed=trial_seed, scenario=scenario))
             for policy in policies:
                 if policy == "fixed":
@@ -293,6 +319,9 @@ def run_experiment(trials=100, num_ships=10, num_berths=3, seed=42,
                 else:
                     schedule = execute_adjusted_plan(scenario_data, plan, policy)
                 if scenario == "normal":
+                    # 失敗した試行を選び直したり、計算済みの待ちを0に置き換えたりしない。
+                    if (schedule["waiting_time"].abs() > 1e-9).any():
+                        raise ValueError(f"試行{trial}・{policy}：正常計画の待ち時間が0ではありません。")
                     normal_schedules[policy] = schedule.set_index("ship")
                 # 船番号で、そのルールの正常時と対応づける。
                 for column in ("waiting_time", "turnaround_time"):

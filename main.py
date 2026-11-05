@@ -64,7 +64,7 @@ def save_plot(summary, output_dir, target_ship, shift_hours):
         axis.legend(fontsize=8)
         axis.grid(axis="y", alpha=0.2)
         axis.set_axisbelow(True)
-    fig.suptitle(f"Mean waiting time: {target_ship} report shifted by +/-{shift_hours:g} h ({rows['trials'].iloc[0]} paired trials)")
+    fig.suptitle(f"Coordinated baseline: {target_ship} report shifted by +/-{shift_hours:g} h ({rows['trials'].iloc[0]} paired trials)")
     fig.tight_layout()
     fig.savefig(output_dir / "waiting_time_comparison.png", dpi=180)
     plt.close(fig)
@@ -79,15 +79,15 @@ def main():
     parser.add_argument("--trials", type=int, default=10, help="試行回数（初期値10）")
     period = parser.add_mutually_exclusive_group()
     period.add_argument("--ships", type=int, help="期間の代わりに固定隻数を指定する")
-    period.add_argument("--duration", type=float, help="到着を生成する期間（時間、初期値168）")
+    period.add_argument("--duration", type=float, help="到着候補を生成する期間（時間、初期値168）。調整後の到着は期間外も含む")
     parser.add_argument("--berths", type=int, default=3, help="バース数（初期値3）")
     parser.add_argument("--seed", type=int, default=42, help="最初の乱数seed（初期値42）")
     parser.add_argument("--shift", type=float, default=4.0, help="早める・遅らせる時間（初期値4）")
     parser.add_argument("--interval", type=float, default=MEAN_INTERARRIVAL_TIME,
-                        help="平均到着間隔（時間、初期値2.37は暫定値）")
+                        help="調整前の到着候補の平均間隔（時間、初期値2.37は暫定値）")
     parser.add_argument("--policy", choices=("all", *POLICIES), default="all",
                         help="比較するルール（初期値all：3ルール）")
-    parser.add_argument("--output", type=Path, default=Path("results_new"), help="保存先（初期値results_new）")
+    parser.add_argument("--output", type=Path, default=Path("results_coordinated"), help="保存先（初期値results_coordinated）")
     parser.add_argument("--no-plot", action="store_true", help="グラフを作らずCSVとJSONを保存する")
     parser.add_argument("--no-save", action="store_true", help="ファイルを保存せずターミナルに結果だけ表示する")
     args = parser.parse_args()
@@ -117,9 +117,19 @@ def main():
         for name, table in results.items():
             table.to_csv(args.output / f"{name}.csv", index=False, encoding="utf-8-sig")
         ship_counts = results["run_metrics"].groupby("trial")["num_ships"].first()
+        ship_data = results["ship_data"]
+        after_period = (ship_data["actual_arrival_time"] >= duration if duration is not None
+                        else pd.Series(False, index=ship_data.index))
         config = {
+            "model_version": "coordinated_arrivals_v1",
             "trials": args.trials, "num_ships": args.ships, "num_berths": args.berths,
             "duration_hours": duration, "ships_per_trial": ship_counts.to_dict(),
+            "duration_applies_to": "candidate_arrival_time",
+            "arrival_adjustment": "align_actual_and_reported_arrivals_with_normal_plan_start",
+            "arrival_adjustment_limit_hours": None,
+            "arrival_adjustment_total_hours_per_trial": ship_data.groupby("trial")["arrival_adjustment_time"].sum().to_dict(),
+            "last_actual_arrival_hours_per_trial": ship_data.groupby("trial")["actual_arrival_time"].max().to_dict(),
+            "adjusted_arrivals_after_period_per_trial": after_period.groupby(ship_data["trial"]).sum().to_dict(),
             "first_seed": args.seed, "last_seed": args.seed + args.trials - 1,
             "target_ship": "V5", "shift_hours": args.shift,
             "mean_interarrival_time": args.interval,
@@ -128,11 +138,13 @@ def main():
             "berth_factors": np.linspace(0.9, 1.1, args.berths).tolist() if args.berths > 1 else [1.0],
             "berth_factor_assignment": "random_permutation_per_ship",
             "time_unit": "hours", "policies": list(policies),
-            "plan_update": "once_per_scenario_before_operations",
+            "plan_update": "keep_normal_reservations_replan_if_report_changes_before_operations",
+            "normal_waiting_time": "zero_required_for_all_policies",
+            "reassignment_rule": "shortest_handling_time_among_free_berths_in_plan_order",
             "initial_berth_state": "all_empty",
             "first_arrival": "first_interarrival_after_zero" if duration is not None else "time_zero",
             "simultaneous_events": "arrivals_and_completions_together",
-            "completion_after_period_end": "finish_all_included_ships",
+            "completion_after_period_end": "retain_and_finish_all_candidate_ships_including_adjusted_arrivals",
             "numpy_version": np.__version__, "pandas_version": pd.__version__,
         }
         (args.output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -147,10 +159,17 @@ def main():
                 print("グラフの作成には matplotlib が必要です。CSVの保存は完了しました。")
 
     ship_counts = results["run_metrics"].groupby("trial")["num_ships"].first()
-    period_text = f"{duration:g}時間" if duration is not None else f"固定{args.ships}隻"
+    period_text = f"到着候補の生成期間{duration:g}時間" if duration is not None else f"固定{args.ships}隻"
     print(f"\n{args.trials}回の比較：{period_text}、船{ship_counts.min()}〜{ship_counts.max()}隻、バース{args.berths}、対象V5、改ざん幅±{args.shift:g}時間")
     print("評価は実到着時刻から計算。各試行で全条件・全ルールに同じ船舶データを使用。")
-    print("到着間隔・荷役係数は仮定した暫定値です。正常時の待ち時間も確認します。\n")
+    print("正常計画の荷役開始に到着を合わせてから申告を改ざんします。正常時は全船の待ち0を確認済みです。")
+    print("到着候補の間隔・荷役係数は仮定値です。速度・燃料は計算せず、到着調整に上限は設けていません。")
+    adjustments = results["ship_data"]["arrival_adjustment_time"]
+    print(f"到着候補から後ろへ調整した時間：全船平均{adjustments.mean():.3f}時間、最大{adjustments.max():.3f}時間（待ち時間とは別に記録）。")
+    if duration is not None:
+        beyond = int((results["ship_data"]["actual_arrival_time"] >= duration).sum())
+        print(f"調整後の到着が期間末以降となった船：全試行合計{beyond}隻。除外せず荷役完了まで計算します。")
+    print()
     # 集計表を「行＝条件、列＝指標」に並べ替え、4指標の試行平均を表示する。
     display_metrics = ["average_waiting_time", "average_turnaround_time", "target_waiting_time", "other_average_waiting_time"]
     for policy in policies:
