@@ -4,6 +4,13 @@ import numpy as np
 import pandas as pd
 
 
+# main.pyで使う実験条件。コマンド引数からは変更しない。
+NUM_BERTHS = 4
+DURATION_HOURS = 168.0
+SHIFT_HOURS = 4.0  # 通常実行の申告変更幅（早い・遅いの両方向）
+STUDY_SHIFT_HOURS = (2.0, 4.0, 8.0)  # 主実験で比較する変更幅
+EARLY_START_LIMIT = 2.0  # 同一バース内調整・バース変更の前倒し上限
+
 # 時間の単位はすべて「時間」。実測値への当てはめではなく予備実験の仮定。
 MEAN_INTERARRIVAL_TIME = 3.0
 HANDLING_SHAPE = 2  # shape が整数のガンマ分布は Erlang 分布
@@ -25,7 +32,7 @@ METRICS = (
 )
 
 
-def generate_ship_data(num_ships=10, num_berths=4, seed=42,
+def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
                        mean_interarrival_time=MEAN_INTERARRIVAL_TIME, duration_hours=None):
     """到着候補、基準荷役時間、荷物の最寄りバースを乱数で作る。
 
@@ -155,7 +162,7 @@ def execute_fixed_plan(plan):
     return pd.DataFrame(rows)
 
 
-def execute_adjusted_plan(data, plan, policy="reassign", early_start_limit=2.0):
+def execute_adjusted_plan(data, plan, policy="reassign", early_start_limit=EARLY_START_LIMIT):
     """到着済みの待ち船を計画順で選び、空きバースへ入れる。
 
     same_berthは計画バースを維持し、reassignは他バースへの変更も許す。
@@ -283,10 +290,10 @@ def select_targets(data, full_study, target_ship):
             for label, fraction in (("early", 0.1), ("middle", 0.5), ("late", 0.9))]
 
 
-def run_experiment(trials=10, num_ships=10, num_berths=4, seed=42,
-                   target_ship="V5", shift_hours=4.0, policies=POLICIES,
-                   duration_hours=168.0, mean_interarrival_time=MEAN_INTERARRIVAL_TIME,
-                   early_start_limit=2.0, full_study=False):
+def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
+                   target_ship="V5", shift_hours=SHIFT_HOURS, policies=POLICIES,
+                   duration_hours=DURATION_HOURS, mean_interarrival_time=MEAN_INTERARRIVAL_TIME,
+                   early_start_limit=EARLY_START_LIMIT, full_study=False):
     """正常待ち0からの情報改ざんを比較する。保存・表示は行わない。
 
     full_studyでは3需要水準×3対象位置×±2/4/8時間×4方式を同じ10seedで比較。
@@ -332,7 +339,7 @@ def run_experiment(trials=10, num_ships=10, num_berths=4, seed=42,
                                 "zero_reserved_gaps": int((np.array(gaps) <= 1e-9).sum()),
                                 "reserved_work_hours": normal_plan["handling_time"].sum()})
             targets = select_targets(data, full_study, target_ship)
-            experiments = [("main", early_start_limit, targets, (2.0, 4.0, 8.0) if full_study else (shift_hours,), policies)]
+            experiments = [("main", early_start_limit, targets, STUDY_SHIFT_HOURS if full_study else (shift_hours,), policies)]
             if full_study:
                 experiments.append(("sensitivity", 0.0, [targets[1]], (4.0,), ("reassign",)))
             for group, limit, selected_targets, widths, selected_policies in experiments:
