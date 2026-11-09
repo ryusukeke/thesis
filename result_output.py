@@ -7,20 +7,15 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from simulation import HANDLING_SCALE, HANDLING_SHAPE
+from simulation import (DURATION_HOURS, EARLY_START_LIMIT, HANDLING_SCALE,
+                        HANDLING_SHAPE, NUM_BERTHS, POLICIES, SHIFT_HOURS,
+                        STUDY_SHIFT_HOURS)
 
 ROOT = Path(__file__).resolve().parent
 
 
-def create_config(args, results, duration, interval, policies, reference):
+def create_config(args, results, interval):
     """実行した条件と、再現に必要なコード・ライブラリの情報をまとめる。"""
-    if args.interval is not None:
-        interval_source = "explicit_argument"
-    elif reference:
-        interval_source = "kobe_day_ahead_forecasts"
-    else:
-        interval_source = "rounded_assumption_3h"
-
     attacks = results["run_metrics"]
     attacks = attacks[attacks.scenario != "normal"]
     return {
@@ -29,18 +24,18 @@ def create_config(args, results, duration, interval, policies, reference):
         "trials_per_cell": args.trials,
         "first_seed": args.seed,
         "last_seed": args.seed + args.trials - 1,
-        "num_berths": args.berths,
-        "num_ships": args.ships,
-        "candidate_duration_hours": duration,
+        "num_berths": NUM_BERTHS,
+        "num_ships": None,  # 固定隻数を指定せず、期間内の到着候補をすべて生成する。
+        "candidate_duration_hours": DURATION_HOURS,
         "base_mean_candidate_interval_hours": interval,
-        "interval_source": interval_source,
+        "interval_source": "kobe_day_ahead_forecasts",
         "demand_multipliers": [0.75, 1.0, 1.5] if args.study else [1.0],
         "target_positions": [0.1, 0.5, 0.9] if args.study else ["V5"],
-        "shift_magnitudes_hours": [2.0, 4.0, 8.0] if args.study else [args.shift],
-        "main_early_start_limit_hours": args.advance,
+        "shift_magnitudes_hours": list(STUDY_SHIFT_HOURS) if args.study else [SHIFT_HOURS],
+        "main_early_start_limit_hours": EARLY_START_LIMIT,
         "unrestricted_early_start_limit_hours": None,
         "sensitivity": "reassign, middle target, +/-4h, limit0" if args.study else None,
-        "policies": list(policies),
+        "policies": list(POLICIES),
         "handling_shape": HANDLING_SHAPE,
         "handling_scale": HANDLING_SCALE,
         "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
