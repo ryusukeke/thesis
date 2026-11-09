@@ -34,6 +34,8 @@
 
 `main.py`の`main()`は「引数の確認 → 保存済み参照値の読み込み → 計算 → 保存・描画・表示」の順に読めます。引数の定義は`cli.py`の`create_parser()`、読み取りとチェックは同じファイルの`parse_args()`に置いています。出力の詳細は`result_output.py`、図の詳細は`plotting.py`を参照してください。計算側から保存・描画処理は呼びません。
 
+図の見た目は`plotting.py`の先頭で調整できます。色はMatplotlib標準の配色を使い、`COLORS`・`SCHEDULE_COLORS`で対応を揃えます。図の幅・高さは`FIGURE_SIZES`、共通の文字サイズ・ひげの幅・解像度などは`PLOT_STYLE`、船名の文字サイズは`SHIP_LABEL_SIZE`にまとめています。軸ラベル・範囲・グリッドなどの設定処理は`setup_waiting_axis()`と`setup_schedule_axes()`に分けています。
+
 ## 実行
 
 既存の`.venv`を使用できます。新規環境ではPython 3.10以上で`requirements.txt`をインストールします。
