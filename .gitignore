@@ -9,10 +9,10 @@ __pycache__/
 .env
 .env.*
 .env~
-!.env.example
 
-# 神戸港EDIの取得原本と日々更新するExcel
+# 神戸港EDIの保管用Excelと参照CSV原本のZIP（原本の公開はしない）
 /data/kobe_port/
+/data/kobe_reference_20261105/source_csvs.zip
 
 # ローカルで保管する先行研究の資料
 /先行研究/*

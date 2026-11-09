@@ -1,14 +1,12 @@
-"""手計算、情報の分離、物理制約、対応比較、神戸港予定の集計を確認する。"""
+"""手計算、情報の分離、物理制約、対応比較、保存済み参照値の整合を確認する。"""
 
-import csv
-from pathlib import Path
-import tempfile
+import json
 import unittest
 
 import numpy as np
 import pandas as pd
 
-from port_collection.analyze_port_data import analyze_forecasts
+from result_output import REFERENCE_DIR
 from simulation import (POLICIES, apply_attack, create_normal_plan, create_plan,
                         execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
                         run_experiment, select_targets)
@@ -178,25 +176,20 @@ class SimulationTests(unittest.TestCase):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 run_experiment(**settings)
 
-    def test_kobe_daily_last_snapshot_next_day_counts_are_not_history_row_counts(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            folder = Path(tmp)/'2026-10-23'
-            folder.mkdir()
-            header = ['コールサイン','船名','船席','入港日時']
-            for stamp, rows in [('2026102307000000', [['A','ONE','PC-14','10/24 08:00']]),
-                                ('2026102310000000', [['A','ONE','PC-14','10/24 09:00'],
-                                                       ['A','ONE','PC-16','10/24 10:00'],
-                                                       ['B','TWO','PC-17','10/24 12:00'],
-                                                       ['C','OTHER','RC-7','10/24 13:00'],
-                                                       ['D','LATER','PC-14','10/25 08:00']])]:
-                with (folder/f'{stamp}_入港船予定表.csv').open('w',encoding='utf-8-sig',newline='') as f:
-                    writer=csv.writer(f);writer.writerow(header);writer.writerows(rows)
-            reference, daily, selected=analyze_forecasts(tmp,'2026-10-23')
-            self.assertEqual(reference['scheduled_ship_days'],2)
-            self.assertEqual(reference['mean_candidate_interval_hours'],12)
-            self.assertEqual(daily[0]['merged_same_ship_day_rows'],1)
-            self.assertEqual(len(selected),3)
-            self.assertEqual(sum(row['counted'] for row in selected),2)
+    def test_saved_kobe_reference_matches_daily_counts_and_selected_rows(self):
+        reference = json.loads((REFERENCE_DIR / 'kobe_reference.json').read_text())
+        daily = pd.read_csv(REFERENCE_DIR / 'kobe_daily_forecasts.csv')
+        selected = pd.read_csv(REFERENCE_DIR / 'kobe_reference_rows.csv')
+        counted = selected[selected['counted']]
+        self.assertEqual(reference['observed_snapshot_days'], len(daily))
+        self.assertEqual(reference['scheduled_ship_days'], int(daily.scheduled_ship_days.sum()))
+        self.assertEqual(reference['scheduled_ship_days'], len(counted))
+        identity = counted.call_sign.fillna('').str.strip()
+        identity = identity.mask(identity.eq(''), counted.ship_name.fillna('').str.strip())
+        self.assertFalse(counted.assign(identity=identity).duplicated(['snapshot_date', 'identity', 'forecast_date']).any())
+        for row in daily.itertuples():
+            self.assertEqual(row.scheduled_ship_days, int((counted.snapshot_date == row.snapshot_date).sum()))
+        self.assertEqual(reference['mean_candidate_interval_hours'], 24 * len(daily) / len(counted))
 
 
 if __name__ == '__main__':

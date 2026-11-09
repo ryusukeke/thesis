@@ -3,6 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
+import shutil
 
 import numpy as np
 import pandas as pd
@@ -12,6 +13,8 @@ from simulation import (DURATION_HOURS, EARLY_START_LIMIT, HANDLING_SCALE,
                         STUDY_SHIFT_HOURS)
 
 ROOT = Path(__file__).resolve().parent
+REFERENCE_DIR = ROOT / "data/kobe_reference_20261105"
+REFERENCE_FILES = ("kobe_reference.json", "kobe_daily_forecasts.csv", "kobe_reference_rows.csv")
 
 
 def create_config(args, results, interval):
@@ -56,8 +59,11 @@ def create_config(args, results, interval):
             name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
             for name in (
                 "simulation.py", "main.py", "cli.py", "result_output.py", "plotting.py",
-                "port_collection/analyze_port_data.py",
             )
+        },
+        "reference_sha256": {
+            name: hashlib.sha256((REFERENCE_DIR / name).read_bytes()).hexdigest()
+            for name in REFERENCE_FILES
         },
         "sources": {
             "berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
@@ -68,11 +74,13 @@ def create_config(args, results, interval):
 
 
 def save_results(results, config, output):
-    """計算結果7表をCSV、実験条件をJSONで保存する。"""
+    """計算結果7表・実験条件・参照値の根拠3ファイルを保存する。"""
     output.mkdir(parents=True, exist_ok=True)
     for name, table in results.items():
         table.to_csv(output / f"{name}.csv", index=False, encoding="utf-8-sig")
     (output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    for name in REFERENCE_FILES:
+        shutil.copyfile(REFERENCE_DIR / name, output / name)
 
 
 def print_summary(results, interval, output):

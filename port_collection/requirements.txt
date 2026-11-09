@@ -1,3 +1,0 @@
-# 神戸港EDIの収集に使うライブラリ。研究フォルダの.venvに追加する。
-playwright==1.64.1
-python-dotenv==1.2.4
