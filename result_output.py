@@ -15,6 +15,16 @@ from simulation import (DURATION_HOURS, EARLY_START_LIMIT, HANDLING_SCALE,
 ROOT = Path(__file__).resolve().parent
 REFERENCE_DIR = ROOT / "data/kobe_reference_20261105"
 REFERENCE_FILES = ("kobe_reference.json", "kobe_daily_forecasts.csv", "kobe_reference_rows.csv")
+CODE_FILES = ("simulation.py", "main.py", "cli.py", "result_output.py", "plotting.py")
+
+
+def calculate_file_hashes(directory, filenames):
+    """再現確認に使うファイル名とSHA-256の対応を作る。"""
+    hashes = {}
+    for name in filenames:
+        content = (directory / name).read_bytes()
+        hashes[name] = hashlib.sha256(content).hexdigest()
+    return hashes
 
 
 def create_config(args, results, interval):
@@ -22,6 +32,7 @@ def create_config(args, results, interval):
     attacks = results["run_metrics"]
     attacks = attacks[attacks.scenario != "normal"]
     return {
+        # 実験の対象条件
         "model_version": "discrete_4berth_bounded_advance_v2",
         "full_study": args.study,
         "trials_per_cell": args.trials,
@@ -39,6 +50,7 @@ def create_config(args, results, interval):
         "unrestricted_early_start_limit_hours": None,
         "sensitivity": "reassign, middle target, +/-4h, limit0" if args.study else None,
         "policies": list(POLICIES),
+        # 計算モデルの前提
         "handling_shape": HANDLING_SHAPE,
         "handling_scale": HANDLING_SCALE,
         "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
@@ -49,22 +61,16 @@ def create_config(args, results, interval):
         "initial_berth_state": "all_empty",
         "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
         "same_time_order": "arrivals_and_releases_and_completions_together; stable_input_order",
+        # 実際に計算した件数
         "distinct_normal_plans": len(results["plan_diagnostics"]),
         "main_attack_executions": int((attacks.experiment_group == "main").sum()),
         "sensitivity_attack_executions": int((attacks.experiment_group == "sensitivity").sum()),
         "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+        # 再現確認に必要な版・ファイル・資料
         "numpy_version": np.__version__,
         "pandas_version": pd.__version__,
-        "code_sha256": {
-            name: hashlib.sha256((ROOT / name).read_bytes()).hexdigest()
-            for name in (
-                "simulation.py", "main.py", "cli.py", "result_output.py", "plotting.py",
-            )
-        },
-        "reference_sha256": {
-            name: hashlib.sha256((REFERENCE_DIR / name).read_bytes()).hexdigest()
-            for name in REFERENCE_FILES
-        },
+        "code_sha256": calculate_file_hashes(ROOT, CODE_FILES),
+        "reference_sha256": calculate_file_hashes(REFERENCE_DIR, REFERENCE_FILES),
         "sources": {
             "berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
             "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",

@@ -71,33 +71,55 @@ def setup_schedule_axes(axes, target_arrival, start, end):
 
 
 def plot_comparisons(summary, output, full_study):
-    """条件別の平均と、上側だけ標本標準偏差1個分のひげを描く。"""
-    main = summary[(summary.experiment_group == "main") & (summary.metric == "other_average_waiting_time")]
+    """改ざん幅・需要・対象位置の比較に、共通の描画処理を使う。"""
+    main = summary[
+        (summary.experiment_group == "main")
+        & (summary.metric == "other_average_waiting_time")
+    ]
     position = "middle" if full_study else "specified"
-    panels = [("01_attack_width", "shift_hours", main[(main.demand_multiplier == 1) & (main.target_position == position)],
-               "Report shift magnitude (hours)", "Baseline demand; middle target" if full_study else "Single setting")]
-    if full_study:
-        panels.extend([
-            ("02_demand", "demand_multiplier", main[(main.target_position == "middle") & (main.shift_hours == 4)],
-             "Candidate demand / observed forecast reference", "Middle target; report shift +/-4 h"),
-            ("03_target_position", "target_position", main[(main.demand_multiplier == 1) & (main.shift_hours == 4)],
-             "Target position in actual arrival order", "Baseline demand; report shift +/-4 h"),
-        ])
-    for filename, x, data, xlabel, subtitle in panels:
-        fig, axes = plt.subplots(1, 2, figsize=FIGURE_SIZES["comparison"], sharey=True)
-        positions = ["early", "middle", "late"] if x == "target_position" else sorted(data[x].unique())
-        xvalues = range(len(positions)) if x == "target_position" else positions
-        for axis, scenario in zip(axes, ("early", "late")):
-            for policy in data.policy.unique():
-                rows = data[(data.scenario == scenario) & (data.policy == policy)].set_index(x).reindex(positions)
-                deviations = rows["std"].fillna(0).to_numpy()
-                axis.errorbar(xvalues, rows["mean"], yerr=np.array([np.zeros(len(rows)), deviations]),
-                              marker="o", color=COLORS[policy], label=POLICY_NAMES[policy])
-            setup_waiting_axis(axis, scenario, xlabel, xticks=xvalues, xticklabels=positions)
-        axes[0].set_ylabel("Other ships: average waiting time (hours)")
-        axes[1].legend()
-        fig.suptitle(subtitle + "; whiskers: +1 sample SD across paired input plans")
-        save_figure(fig, output, filename)
+    baseline_demand = main[main.demand_multiplier == 1]
+    plot_waiting_comparison(
+        baseline_demand[baseline_demand.target_position == position], output, "01_attack_width",
+        x_column="shift_hours", xlabel="Report shift magnitude (hours)",
+        subtitle="Baseline demand; middle target" if full_study else "Single setting",
+    )
+    if not full_study:
+        return
+
+    middle_target = main[main.target_position == "middle"]
+    plot_waiting_comparison(
+        middle_target[middle_target.shift_hours == 4], output, "02_demand",
+        x_column="demand_multiplier", xlabel="Candidate demand / observed forecast reference",
+        subtitle="Middle target; report shift +/-4 h",
+    )
+    plot_waiting_comparison(
+        baseline_demand[baseline_demand.shift_hours == 4], output, "03_target_position",
+        x_column="target_position", xlabel="Target position in actual arrival order",
+        subtitle="Baseline demand; report shift +/-4 h",
+    )
+
+
+def plot_waiting_comparison(data, output, filename, *, x_column, xlabel, subtitle):
+    """条件別の平均と、上側だけ標本標準偏差1個分のひげを描く。"""
+    fig, axes = plt.subplots(1, 2, figsize=FIGURE_SIZES["comparison"], sharey=True)
+    if x_column == "target_position":
+        positions = ["early", "middle", "late"]
+        xvalues = range(len(positions))
+    else:
+        positions = sorted(data[x_column].unique())
+        xvalues = positions
+    for axis, scenario in zip(axes, ("early", "late")):
+        for policy in data.policy.unique():
+            selected = data[(data.scenario == scenario) & (data.policy == policy)]
+            rows = selected.set_index(x_column).reindex(positions)
+            deviations = rows["std"].fillna(0).to_numpy()
+            axis.errorbar(xvalues, rows["mean"], yerr=np.array([np.zeros(len(rows)), deviations]),
+                          marker="o", color=COLORS[policy], label=POLICY_NAMES[policy])
+        setup_waiting_axis(axis, scenario, xlabel, xticks=xvalues, xticklabels=positions)
+    axes[0].set_ylabel("Other ships: average waiting time (hours)")
+    axes[1].legend()
+    fig.suptitle(subtitle + "; whiskers: +1 sample SD across paired input plans")
+    save_figure(fig, output, filename)
 
 
 def plot_advance_limits(summary, output):
@@ -109,7 +131,12 @@ def plot_advance_limits(summary, output):
     for axis, scenario in zip(axes, ("early", "late")):
         values, errors = [], []
         for group, policy in (("sensitivity", "reassign"), ("main", "reassign"), ("main", "unrestricted")):
-            row = subset[(subset.experiment_group == group) & (subset.policy == policy) & (subset.scenario == scenario)].iloc[0]
+            selected = subset[
+                (subset.experiment_group == group)
+                & (subset.policy == policy)
+                & (subset.scenario == scenario)
+            ]
+            row = selected.iloc[0]
             values.append(row["mean"])
             errors.append(0 if pd.isna(row["std"]) else row["std"])
         axis.bar(["0 h", "2 h", "Unlimited"], values, yerr=np.array([np.zeros(len(errors)), errors]),
@@ -120,35 +147,58 @@ def plot_advance_limits(summary, output):
     save_figure(fig, output, "04_advance_limit")
 
 
-def plot_schedule_example(results, output):
-    """事前指定した条件内で、固定方式の他船待ちが最大の例を描く。"""
+def select_schedule_example(results):
+    """説明用の試行を選び、その正常運用と改ざん後の運用を取り出す。"""
     # 平均を代表する例ではない。事前指定セル内でAの他船待ちが最大の例を説明用に選ぶ。
     runs = results["run_metrics"]
-    examples = runs[(runs.experiment_group == "main") & (runs.demand_multiplier == 1)
-                    & (runs.target_position == "middle") & (runs.shift_hours == 4)
-                    & (runs.scenario == "early") & (runs.policy == "fixed")]
+    examples = runs[
+        (runs.experiment_group == "main")
+        & (runs.demand_multiplier == 1)
+        & (runs.target_position == "middle")
+        & (runs.shift_hours == 4)
+        & (runs.scenario == "early")
+        & (runs.policy == "fixed")
+    ]
     example = examples.sort_values(["other_average_waiting_time", "trial"], ascending=[False, True]).iloc[0]
     schedules = results["schedules"]
-    schedules = schedules[(schedules.experiment_group == "main") & (schedules.demand_multiplier == 1)
-                          & (schedules.trial == example.trial)]
-    attacked = schedules[(schedules.target_position == "middle") & (schedules.shift_hours == 4)
-                         & (schedules.scenario == "early")]
+    schedules = schedules[
+        (schedules.experiment_group == "main")
+        & (schedules.demand_multiplier == 1)
+        & (schedules.trial == example.trial)
+    ]
+    normal = schedules[(schedules.scenario == "normal") & (schedules.policy == "fixed")]
+    attacked = schedules[
+        (schedules.target_position == "middle")
+        & (schedules.shift_hours == 4)
+        & (schedules.scenario == "early")
+    ]
+    return example, normal, attacked
+
+
+def draw_ship_schedule(axis, schedule, target, start, end):
+    """1つの軸に、表示範囲と重なる船の荷役区間と船名を描く。"""
+    for _, row in schedule.iterrows():
+        if row.completion_time <= start or row.start_time >= end:
+            continue
+        berth = int(row.assigned_berth[1:])
+        axis.barh(berth, row.handling_time, left=row.start_time, height=0.65,
+                  color=SCHEDULE_COLORS["target" if row.ship == target else "other"], edgecolor="white")
+        label_start = max(start, row.start_time)
+        visible_duration = min(end, row.completion_time) - label_start
+        if visible_duration > 1:
+            axis.text(label_start + 0.1, berth, row.ship, va="center", fontsize=SHIP_LABEL_SIZE, clip_on=True)
+
+
+def plot_schedule_example(results, output):
+    """事前指定した条件内で、固定方式の他船待ちが最大の例を描く。"""
+    example, normal, attacked = select_schedule_example(results)
     target = example.target_ship
     target_arrival = attacked.loc[attacked.ship == target, "actual_arrival_time"].iloc[0]
     start, end = max(0, target_arrival - 8), target_arrival + 24
     fig, axes = plt.subplots(5, 1, figsize=FIGURE_SIZES["schedule"], sharex=True)
-    normal = schedules[(schedules.scenario == "normal") & (schedules.policy == "fixed")]
     tables = [normal] + [attacked[attacked.policy == policy] for policy in POLICIES]
     for axis, table in zip(axes, tables):
-        for _, row in table.iterrows():
-            if row.completion_time <= start or row.start_time >= end:
-                continue
-            berth = int(row.assigned_berth[1:])
-            axis.barh(berth, row.handling_time, left=row.start_time, height=0.65,
-                      color=SCHEDULE_COLORS["target" if row.ship == target else "other"], edgecolor="white")
-            x = max(start, row.start_time)
-            if min(end, row.completion_time) - x > 1:
-                axis.text(x + 0.1, berth, row.ship, va="center", fontsize=SHIP_LABEL_SIZE, clip_on=True)
+        draw_ship_schedule(axis, table, target, start, end)
     setup_schedule_axes(axes, target_arrival, start, end)
     fig.suptitle(f"Illustrative maximum in predefined cell: seed {int(example.seed)}, {target}, early report -4 h")
     save_figure(fig, output, "05_schedule_example")
