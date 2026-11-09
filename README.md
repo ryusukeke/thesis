@@ -18,7 +18,10 @@
 | 場所 | 役割 |
 | --- | --- |
 | `simulation.py` | 到着候補・荷役時間、正常計画、改ざん、運用、比較の計算 |
-| `main.py` | 実験の呼び出し、CSV・設定・グラフの保存、結果表示 |
+| `main.py` | 参照集計・実験・出力処理を呼び出す実行の流れ |
+| `cli.py` | コマンド引数の定義・読み取り、主実験の固定条件と保存先の確認 |
+| `result_output.py` | 実験条件の記録、CSV・設定JSONの保存、結果概要の表示 |
+| `plotting.py` | 条件別比較・前倒し上限・船のスケジュールの描画、PNG・PDFの保存 |
 | `test_simulation.py` | 手計算と主要制約を確認する13件の自動テスト |
 | `port_collection/` | [神戸港の収集・同期](port_collection/README.md)と研究用予定件数の集計 |
 | `data/kobe_port/` | 収集原本と蓄積Excel。研究実行では変更しない |
@@ -28,6 +31,8 @@
 | `先行研究/` | [文献と参照版](先行研究/資料の入手元.md) |
 
 `simulation.py`を直接実行しても実験・保存は始まりません。収集・同期はシミュレーションと別の処理です。`.env`と認証情報を研究実験に使いません。
+
+`main.py`の`main()`は「引数の確認 → 参照予定の集計 → 計算 → 保存・描画・表示」の順に読めます。引数の定義は`cli.py`の`create_parser()`、読み取りとチェックは同じファイルの`parse_args()`に置いています。出力の詳細は`result_output.py`、図の詳細は`plotting.py`を参照してください。計算側から保存・描画処理は呼びません。
 
 ## 実行
 
@@ -43,11 +48,19 @@
 # 手計算・物理制約・比較条件・参照データ集計の確認
 .venv/bin/python -m unittest -v
 
-# 保存済み主実験の全CSVを独立に検算
-.venv/bin/python results/final_20261105/audit_results.py
 ```
 
 保存先にファイルがある場合は停止します。既存結果を上書きしないため、再実行時は新しい`--output`を使ってください。`--no-save`では保存先作成・保存・グラフ生成をしません。
+
+保存済み主実験の検算スクリプトは、CSVだけでなく実験時のコードのSHA-256も照合します。2026年11月9日の責務分離後は`main.py`のハッシュが異なるため、現在のコードでは照合で停止します。過去結果を検算する場合は、実験時のコミット`9cd41aa`を別の作業場所に展開して実行してください。保存済みの設定・結果・検算スクリプトは変更していません。新しい実験の`config.json`には、分離した`cli.py`・`result_output.py`・`plotting.py`を含むコード6ファイルのハッシュを記録します。
+
+研究フォルダで次を実行すると、当時のコードと結果を一時フォルダへ展開して検算できます。参照原本はこのPCの元の保存場所から読みます。検算で作る`validation.json`は一時フォルダ内に保存されます。
+
+```bash
+audit_dir=$(mktemp -d /tmp/thesis-audit-20261105.XXXXXX)
+git archive 9cd41aa simulation.py main.py port_collection/analyze_port_data.py results/final_20261105 | tar -x -C "$audit_dir"
+.venv/bin/python "$audit_dir/results/final_20261105/audit_results.py"
+```
 
 | 引数 | 既定値・扱い |
 | --- | --- |
