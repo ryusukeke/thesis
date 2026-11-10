@@ -161,7 +161,8 @@ class SimulationTests(unittest.TestCase):
         for _, case in schedules.groupby(keys):
             self.assertEqual(case.ship.nunique(), 25)
             self.assertTrue((case.start_time >= case.actual_arrival_time).all())
-            self.assertTrue((case.start_time >= case.earliest_start_time).all())
+            if case.policy.iloc[0] == 'fixed':
+                self.assertTrue((case.start_time >= case.planned_start_time).all())
             np.testing.assert_allclose(case.turnaround_time, case.waiting_time + case.handling_time)
             for berth, rows in case.groupby('assigned_berth'):
                 rows = rows.sort_values('start_time')
@@ -173,13 +174,13 @@ class SimulationTests(unittest.TestCase):
         normal = schedules[schedules.scenario == 'normal']
         self.assertTrue((normal.waiting_time >= 0).all())
         self.assertTrue((normal.waiting_time > 0).any())
-        compare = results['paired_comparison']
+        compare = results['summary']
         for row in compare.itertuples():
             runs = results['run_metrics']
             selected = runs[(runs.experiment_group == row.experiment_group) & (runs.demand_multiplier == row.demand_multiplier)
                             & (runs.target_position == row.target_position) & (runs.shift_hours == row.shift_hours)
                             & (runs.scenario == row.scenario) & (runs.policy == row.policy)]
-            self.assertAlmostEqual(row.attack_mean, selected[row.metric].mean())
+            self.assertAlmostEqual(row.mean, selected[row.metric].mean())
             baseline = runs[(runs.demand_multiplier == row.demand_multiplier)
                             & (runs.target_position == row.target_position)
                             & (runs.scenario == 'normal') & (runs.policy == row.policy)].set_index('trial')
@@ -194,8 +195,8 @@ class SimulationTests(unittest.TestCase):
         repeated = run_experiment(**settings)
         for name in result:
             pd.testing.assert_frame_equal(result[name], repeated[name])
-        np.testing.assert_allclose(result['paired_comparison'].mean_difference, 0)
-        self.assertTrue((result['paired_comparison'].unchanged_trials == 1).all())
+        np.testing.assert_allclose(result['summary'].mean_difference, 0)
+        self.assertTrue((result['summary'].unchanged_trials == 1).all())
 
     def test_full_study_counts_targets_and_three_policies_share_inputs(self):
         result = run_experiment(trials=1, full_study=True)

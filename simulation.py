@@ -112,13 +112,12 @@ def create_plan(data):
     return pd.DataFrame(plan)
 
 
-def create_execution_result(planned_ship, berth_index, start_time, handling_time, earliest_start_time):
+def create_execution_result(planned_ship, berth_index, start_time, handling_time):
     """1隻の実行結果を作り、完了・待ち・在港時間を共通の式で計算する。"""
     result = planned_ship.copy()
     result["planned_berth"] = planned_ship["assigned_berth"]
     result["assigned_berth"] = f"B{berth_index + 1}"
     result["handling_time"] = handling_time
-    result["earliest_start_time"] = earliest_start_time
     result["start_time"] = start_time
     result["completion_time"] = start_time + handling_time
     result["waiting_time"] = start_time - planned_ship["actual_arrival_time"]
@@ -137,9 +136,8 @@ def execute_fixed_plan(plan):
     for row in planned_ships:
         index = int(row["assigned_berth"][1:]) - 1
         # 計画開始・実到着・同じバースの前船の完了をすべて満たしてから開始する。
-        earliest_start = max(row["planned_start_time"], row["actual_arrival_time"])
-        start = max(earliest_start, actual_available[index])
-        result = create_execution_result(row, index, start, row["handling_time"], earliest_start)
+        start = max(row["planned_start_time"], row["actual_arrival_time"], actual_available[index])
+        result = create_execution_result(row, index, start, row["handling_time"])
         actual_available[index] = result["completion_time"]
         rows.append(result)
     return pd.DataFrame(rows)
@@ -170,8 +168,6 @@ def execute_adjusted_plan(data, plan, policy="reassign"):
     berth_columns = [c for c in data.columns if c.startswith("handling_time_B")]
     handling_times = data.set_index("ship")[berth_columns]
     pending = plan.sort_values("assignment_order").to_dict("records")
-    for row in pending:
-        row["earliest_start_time"] = row["actual_arrival_time"]
     actual_available = np.zeros(len(berth_columns))
     rows = []
     current_time = 0.0
@@ -179,7 +175,7 @@ def execute_adjusted_plan(data, plan, policy="reassign"):
     while pending:
         # 同時刻の到着と完了をまとめて扱い、到着済みの船を計画順で確認する。
         for row in pending.copy():
-            if row["earliest_start_time"] > current_time:
+            if row["actual_arrival_time"] > current_time:
                 continue
             selected = select_available_berth(
                 row["assigned_berth"], handling_times.loc[row["ship"]],
@@ -189,7 +185,7 @@ def execute_adjusted_plan(data, plan, policy="reassign"):
                 continue
 
             handling, index = selected
-            result = create_execution_result(row, index, current_time, handling, row["earliest_start_time"])
+            result = create_execution_result(row, index, current_time, handling)
             actual_available[index] = result["completion_time"]
             rows.append(result)
             pending.remove(row)
@@ -253,8 +249,7 @@ def summarize_results(run_metrics):
     summary["mean_mitigation_vs_fixed"] = (
         summary.set_index(match).index.map(fixed) - summary["mean_difference"].to_numpy()
     )
-    comparison = summary.drop(columns="std").rename(columns={"mean": "attack_mean"})
-    return summary, comparison
+    return summary
 
 
 def execute_policy(data, plan, policy):
@@ -273,11 +268,9 @@ def select_targets(data, full_study, target_ship):
             for label, fraction in (("early", 0.1), ("middle", 0.5), ("late", 0.9))]
 
 
-def calculate_plan_diagnostics(data, normal_plan, mean_interval):
-    """正常入力の隻数・到着間隔と、到着・計画完了の範囲をまとめる。"""
+def calculate_plan_diagnostics(data, normal_plan):
+    """設定の記録に使う、最後の実到着と正常計画の最終完了をまとめる。"""
     return {
-        "num_ships": len(data),
-        "mean_interarrival_time": mean_interval,
         "last_actual_arrival": data["actual_arrival_time"].max(),
         "last_planned_completion": normal_plan["planned_completion_time"].max(),
     }
@@ -289,7 +282,7 @@ def run_normal_cases(data, normal_plan, shared, policies):
     schedules = []
     for policy in policies:
         normal = execute_policy(data, normal_plan, policy)
-        normal_schedules[policy] = normal.set_index("ship")
+        normal_schedules[policy] = normal
         schedules.append(normal.assign(
             **shared,
             experiment_group="main",
@@ -302,8 +295,8 @@ def run_normal_cases(data, normal_plan, shared, policies):
     return normal_schedules, schedules
 
 
-def run_attack_case(data, normal_plan, normal_schedules, labels, policies):
-    """1隻・1方向・1改ざん幅の計画を作り、各方式の運用と正常との差を計算する。"""
+def run_attack_case(data, normal_plan, labels, policies):
+    """1隻・1方向・1改ざん幅の計画を作り、各方式の運用と指標を計算する。"""
     target = labels["target_ship"]
     width = labels["shift_hours"]
     shift = -width if labels["scenario"] == "early" else width
@@ -318,12 +311,6 @@ def run_attack_case(data, normal_plan, normal_schedules, labels, policies):
     metrics = []
     for policy in policies:
         schedule = execute_policy(attacked, plan, policy)
-        normal = normal_schedules[policy]
-        for column in ("waiting_time", "turnaround_time"):
-            normal_values = schedule["ship"].map(normal[column])
-            schedule[f"{column}_change"] = schedule[column] - normal_values
-        schedule["is_target"] = schedule["ship"] == target
-        schedule["arrival_shift"] = schedule["reported_arrival_time"] - schedule["actual_arrival_time"]
         schedules.append(schedule.assign(
             **labels, experiment_group="main", policy=policy,
         ))
@@ -334,7 +321,7 @@ def run_attack_case(data, normal_plan, normal_schedules, labels, policies):
             "num_ships": len(data),
             **calculate_metrics(schedule, target),
         })
-    return plan.assign(**labels, experiment_group="main"), schedules, metrics
+    return schedules, metrics
 
 
 def run_comparison_cases(data, normal_plan, shared, targets, widths, policies):
@@ -342,11 +329,10 @@ def run_comparison_cases(data, normal_plan, shared, targets, widths, policies):
     normal_schedules, schedules = run_normal_cases(
         data, normal_plan, shared, policies,
     )
-    plans = []
     metrics = []
     for position, target in targets:
         for policy in policies:
-            normal = normal_schedules[policy].reset_index()
+            normal = normal_schedules[policy]
             metrics.append({
                 **shared,
                 "experiment_group": "main",
@@ -367,14 +353,13 @@ def run_comparison_cases(data, normal_plan, shared, targets, widths, policies):
                     "shift_hours": width,
                     "scenario": scenario,
                 }
-                plan, case_schedules, case_metrics = run_attack_case(
-                    data, normal_plan, normal_schedules, labels,
+                case_schedules, case_metrics = run_attack_case(
+                    data, normal_plan, labels,
                     policies=policies,
                 )
-                plans.append(plan)
                 schedules.extend(case_schedules)
                 metrics.extend(case_metrics)
-    return plans, schedules, metrics
+    return schedules, metrics
 
 
 def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
@@ -398,7 +383,6 @@ def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
     if full_study and (duration_hours is None or tuple(policies) != POLICIES):
         raise ValueError("主実験は期間指定・3方式すべてで実行します。")
     inputs = []
-    plans = []
     schedules = []
     metrics = []
     diagnostics = []
@@ -419,26 +403,21 @@ def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
             normal_plan = create_plan(data)
             shared = {"demand_multiplier": demand, "trial": trial, "seed": trial_seed}
             inputs.append(data.assign(**shared))
-            plans.append(normal_plan.assign(**shared, scenario="normal", target_position="baseline",
-                                             target_ship="", shift_hours=0.0))
-            diagnosis = calculate_plan_diagnostics(data, normal_plan, mean_interval)
+            diagnosis = calculate_plan_diagnostics(data, normal_plan)
             diagnostics.append({**shared, **diagnosis})
             targets = select_targets(data, full_study, target_ship)
             widths = (2.0, 4.0, 8.0) if full_study else (shift_hours,)
-            case_plans, case_schedules, case_metrics = run_comparison_cases(
+            case_schedules, case_metrics = run_comparison_cases(
                 data, normal_plan, shared, targets, widths, policies,
             )
-            plans.extend(case_plans)
             schedules.extend(case_schedules)
             metrics.extend(case_metrics)
     run_metrics = pd.DataFrame(metrics)
-    summary, comparisons = summarize_results(run_metrics)
+    summary = summarize_results(run_metrics)
     return {
         "ship_data": pd.concat(inputs, ignore_index=True),
-        "plans": pd.concat(plans, ignore_index=True),
         "schedules": pd.concat(schedules, ignore_index=True),
         "run_metrics": run_metrics,
         "summary": summary,
-        "paired_comparison": comparisons,
         "plan_diagnostics": pd.DataFrame(diagnostics),
     }

@@ -5,7 +5,7 @@ __pycache__/
 .mplconfig/
 /AGENTS.md
 
-# ローカルの認証情報（空の記入例だけをGitに含める）
+# ローカルの認証情報
 .env
 .env.*
 .env~
