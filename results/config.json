@@ -1,13 +1,13 @@
 {
-  "model_version": "discrete_4berth_unbounded_advance_v3",
+  "model_version": "discrete_4berth_fixed_arrivals_v4",
   "full_study": true,
   "trials_per_cell": 100,
   "first_seed": 42,
   "last_seed": 141,
   "num_berths": 4,
   "num_ships": null,
-  "candidate_duration_hours": 168.0,
-  "base_mean_candidate_interval_hours": 3.029126213592233,
+  "arrival_duration_hours": 168.0,
+  "base_mean_interarrival_hours": 3.029126213592233,
   "interval_source": "kobe_day_ahead_forecasts",
   "demand_multipliers": [
     0.75,
@@ -36,27 +36,92 @@
   "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
   "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
   "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
-  "normal_arrival_adjustment": "normal_reserved_start; no upper limit; no speed or fuel model",
-  "plan_update": "keep_normal_reservations; replan_once_if_report_changes",
+  "normal_arrival_adjustment": "none; actual arrivals remain at generated times",
+  "plan_update": "replan_once_before_operations_if_one_report_changes; actual_arrivals_unchanged",
+  "comparison_baseline": "same_input_trial_and_policy; attack_minus_normal",
   "initial_berth_state": "all_empty",
-  "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
+  "period_end": "finish_all_ships_arriving_before_period_end_including_later_completions",
   "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
   "distinct_normal_plans": 300,
   "main_attack_executions": 16200,
   "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+  "normal_waiting_summary": [
+    {
+      "demand_multiplier": 0.75,
+      "policy": "fixed",
+      "trials": 100,
+      "mean_waiting_hours": 0.07302582978184839,
+      "max_waiting_hours": 5.766819311701141
+    },
+    {
+      "demand_multiplier": 0.75,
+      "policy": "reassign",
+      "trials": 100,
+      "mean_waiting_hours": 0.07302582978184839,
+      "max_waiting_hours": 5.766819311701141
+    },
+    {
+      "demand_multiplier": 0.75,
+      "policy": "same_berth",
+      "trials": 100,
+      "mean_waiting_hours": 0.07302582978184839,
+      "max_waiting_hours": 5.766819311701141
+    },
+    {
+      "demand_multiplier": 1.0,
+      "policy": "fixed",
+      "trials": 100,
+      "mean_waiting_hours": 0.20033315896101983,
+      "max_waiting_hours": 11.495715774366943
+    },
+    {
+      "demand_multiplier": 1.0,
+      "policy": "reassign",
+      "trials": 100,
+      "mean_waiting_hours": 0.20033315896101983,
+      "max_waiting_hours": 11.495715774366943
+    },
+    {
+      "demand_multiplier": 1.0,
+      "policy": "same_berth",
+      "trials": 100,
+      "mean_waiting_hours": 0.20033315896101983,
+      "max_waiting_hours": 11.495715774366943
+    },
+    {
+      "demand_multiplier": 1.5,
+      "policy": "fixed",
+      "trials": 100,
+      "mean_waiting_hours": 0.9063039669422074,
+      "max_waiting_hours": 19.960845845915557
+    },
+    {
+      "demand_multiplier": 1.5,
+      "policy": "reassign",
+      "trials": 100,
+      "mean_waiting_hours": 0.9063039669422074,
+      "max_waiting_hours": 19.960845845915557
+    },
+    {
+      "demand_multiplier": 1.5,
+      "policy": "same_berth",
+      "trials": 100,
+      "mean_waiting_hours": 0.9063039669422074,
+      "max_waiting_hours": 19.960845845915557
+    }
+  ],
   "normal_plan_diagnostics": {
-    "max_arrival_adjustment_hours": 19.960845845915557,
-    "arrivals_after_period": 56,
-    "last_actual_arrival_hours": 176.96670480534632
+    "last_actual_arrival_hours": 167.9986147855645,
+    "last_planned_completion_hours": 190.7173023490338
   },
   "numpy_version": "2.5.1",
   "pandas_version": "3.0.3",
   "code_sha256": {
-    "simulation.py": "babc1f7ff8673733fe923b7f06282341b0aa3f3dc6dd05b9a7b0522934dc62fd",
+    "simulation.py": "e1362cf94909ee9767a06fe6b3674679482d8aec66d4ef7776eea8194c9819ba",
     "main.py": "5ccfdd94f4a97de8463a5360887f5cdc1142113f861e17def76958e1cefa8306",
-    "cli.py": "e64218185f247d793599736dba79c9b42553f54c8198dfb0b612e591f8dca7bc",
-    "result_output.py": "8d2bdbaff7d18548435d9e9914571a951196eb603b308d93c4229f9090132894",
-    "plotting.py": "c5aa6d51be04b7f81935f1e51f2cd1263b99b00375835f390dd65cffcc3f141c"
+    "cli.py": "d2af237b75f7fa4c4148d5b92cae68b08b6ba0d118a51f3a3424e4a4d34d7ff8",
+    "result_output.py": "53e086aa5abd88a4d52e817f72ffe2a47dfe150fff05230c49eae7e8a0b58786",
+    "plotting.py": "2a283b76d74a6bf12c2154fd468a2272dd1ce8e521a7a14dbb200a40cd162f1a"
   },
   "reference_sha256": {
     "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",
