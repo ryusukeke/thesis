@@ -1,5 +1,5 @@
 {
-  "model_version": "discrete_4berth_fixed_arrivals_v4",
+  "model_version": "discrete_4berth_multi_ship_v5",
   "full_study": true,
   "trials_per_cell": 100,
   "first_seed": 42,
@@ -14,11 +14,16 @@
     1.0,
     1.5
   ],
-  "target_positions": [
-    0.1,
-    0.5,
-    0.9
+  "attack_scales": [
+    "single",
+    "p10",
+    "p30",
+    "p50"
   ],
+  "target_selection": "permutation_prefix; fractions_ceil",
+  "selection_rng_seed": "trial_seed+200000; permutation then first mixed sign",
+  "mixed_rule": "alternating_signs_in_selection_order; random_first_sign; no_single_ship_mixed",
+  "primary_metric": "average_waiting_time; attack_minus_same_policy_normal",
   "shift_magnitudes_hours": [
     2.0,
     4.0,
@@ -37,13 +42,14 @@
   "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
   "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
   "normal_arrival_adjustment": "none; actual arrivals remain at generated times",
-  "plan_update": "replan_once_before_operations_if_one_report_changes; actual_arrivals_unchanged",
+  "plan_update": "change_all_selected_reports_then_replan_once_before_operations; actual_arrivals_unchanged",
   "comparison_baseline": "same_input_trial_and_policy; attack_minus_normal",
   "initial_berth_state": "all_empty",
   "period_end": "finish_all_ships_arriving_before_period_end_including_later_completions",
   "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
   "distinct_normal_plans": 300,
-  "main_attack_executions": 16200,
+  "main_attack_executions": 21600,
+  "mixed_attack_executions": 8100,
   "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
   "normal_waiting_summary": [
     {
@@ -110,6 +116,13 @@
       "max_waiting_hours": 19.960845845915557
     }
   ],
+  "normal_occupancy_by_demand": {
+    "0.75": 0.3032782541546748,
+    "1.0": 0.4107901764525437,
+    "1.5": 0.6340507889505423
+  },
+  "schedule_storage": "one illustrative trial; maximum fixed mean-wait increase in predefined cell",
+  "example_cell": "demand_1_p30_mixed_4h",
   "normal_plan_diagnostics": {
     "last_actual_arrival_hours": 167.9986147855645,
     "last_planned_completion_hours": 190.7173023490338
@@ -117,11 +130,11 @@
   "numpy_version": "2.5.1",
   "pandas_version": "3.0.3",
   "code_sha256": {
-    "simulation.py": "e1362cf94909ee9767a06fe6b3674679482d8aec66d4ef7776eea8194c9819ba",
+    "simulation.py": "737a275cf0fcc73944e31adbf4a6f04c96bf3747a7a25ab162c3fdee75d2cdf0",
     "main.py": "5ccfdd94f4a97de8463a5360887f5cdc1142113f861e17def76958e1cefa8306",
-    "cli.py": "d2af237b75f7fa4c4148d5b92cae68b08b6ba0d118a51f3a3424e4a4d34d7ff8",
-    "result_output.py": "53e086aa5abd88a4d52e817f72ffe2a47dfe150fff05230c49eae7e8a0b58786",
-    "plotting.py": "2a283b76d74a6bf12c2154fd468a2272dd1ce8e521a7a14dbb200a40cd162f1a"
+    "cli.py": "cdede86003aaaef84766e0575ac60ea6646327d0d581025412d0e214c1f29aed",
+    "result_output.py": "c311fed9f39833ea08322155a364f8a0fd733a561a8d2625081c70f66a36d732",
+    "plotting.py": "c1522e684ba8cd9d2a1a141e24060a607f8a5ca5e4facf2e850d2915e31cd9b3"
   },
   "reference_sha256": {
     "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",
