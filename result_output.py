@@ -27,18 +27,26 @@ def calculate_file_hashes(directory, filenames):
 def create_config(args, results, interval):
     """実行した条件と、再現に必要なコード・ライブラリの情報をまとめる。"""
     attacks = results["run_metrics"]
+    normal = attacks[attacks.scenario == "normal"].drop_duplicates(
+        ["demand_multiplier", "trial", "policy"]
+    )
+    normal_waiting = normal.groupby(["demand_multiplier", "policy"], as_index=False).agg(
+        trials=("trial", "count"),
+        mean_waiting_hours=("average_waiting_time", "mean"),
+        max_waiting_hours=("max_waiting_time", "max"),
+    )
     attacks = attacks[attacks.scenario != "normal"]
     return {
         # 実験の対象条件
-        "model_version": "discrete_4berth_unbounded_advance_v3",
+        "model_version": "discrete_4berth_fixed_arrivals_v4",
         "full_study": args.study,
         "trials_per_cell": args.trials,
         "first_seed": args.seed,
         "last_seed": args.seed + args.trials - 1,
         "num_berths": NUM_BERTHS,
-        "num_ships": None,  # 固定隻数を指定せず、期間内の到着候補をすべて生成する。
-        "candidate_duration_hours": DURATION_HOURS,
-        "base_mean_candidate_interval_hours": interval,
+        "num_ships": None,  # 固定隻数を指定せず、期間内の実到着をすべて生成する。
+        "arrival_duration_hours": DURATION_HOURS,
+        "base_mean_interarrival_hours": interval,
         "interval_source": "kobe_day_ahead_forecasts",
         "demand_multipliers": [0.75, 1.0, 1.5] if args.study else [1.0],
         "target_positions": [0.1, 0.5, 0.9] if args.study else ["V5"],
@@ -52,19 +60,20 @@ def create_config(args, results, interval):
         "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
         "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
         "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
-        "normal_arrival_adjustment": "normal_reserved_start; no upper limit; no speed or fuel model",
-        "plan_update": "keep_normal_reservations; replan_once_if_report_changes",
+        "normal_arrival_adjustment": "none; actual arrivals remain at generated times",
+        "plan_update": "replan_once_before_operations_if_one_report_changes; actual_arrivals_unchanged",
+        "comparison_baseline": "same_input_trial_and_policy; attack_minus_normal",
         "initial_berth_state": "all_empty",
-        "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
+        "period_end": "finish_all_ships_arriving_before_period_end_including_later_completions",
         "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
         # 実際に計算した件数
         "distinct_normal_plans": len(results["plan_diagnostics"]),
         "main_attack_executions": int((attacks.experiment_group == "main").sum()),
         "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+        "normal_waiting_summary": normal_waiting.to_dict("records"),
         "normal_plan_diagnostics": {
-            "max_arrival_adjustment_hours": results["plan_diagnostics"]["max_arrival_adjustment"].max(),
-            "arrivals_after_period": int(results["plan_diagnostics"]["arrivals_after_period"].sum()),
             "last_actual_arrival_hours": results["plan_diagnostics"]["last_actual_arrival"].max(),
+            "last_planned_completion_hours": results["plan_diagnostics"]["last_planned_completion"].max(),
         },
         # 再現確認に必要な版・ファイル・資料
         "numpy_version": np.__version__,
@@ -98,10 +107,14 @@ def print_summary(results, interval, output):
     )
     print(
         f"正常時の最大待ち時間：{normal.max_waiting_time.max():.9f}時間。"
-        f"到着候補の基準平均間隔：{interval:.6f}時間。"
+        f"実到着の基準平均間隔：{interval:.6f}時間。"
     )
     print("下表は全主実験条件を同じ重みで平均した概要です。条件別の比較はsummary.csvを参照してください。")
-    metrics = ["other_average_waiting_time", "other_waiting_ships", "berth_changes"]
-    print(attacks.groupby(["policy", "scenario"])[metrics].mean().round(4).to_string())
-    print("実測の荷役時間・実待ち時間による検証ではありません。到着調整の概要はconfig.jsonに記録します。")
+    summary = results["summary"]
+    other_wait = summary[summary.metric == "other_average_waiting_time"]
+    print("他船の平均待ち時間（時間）。mean_differenceは同じ方式の正常時からの増減です。")
+    print(other_wait.groupby(["policy", "scenario"])[
+        ["normal_mean", "mean", "mean_difference"]
+    ].mean().round(4).to_string())
+    print("実到着は固定し、正常時にも待ちを認めます。実測の荷役時間・実待ち時間による検証ではありません。")
     print("保存なし" if output is None else f"保存先：{output.resolve()}")

@@ -26,10 +26,10 @@ METRICS = (
 
 def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
                        mean_interarrival_time=3.0, duration_hours=None):
-    """到着候補、基準荷役時間、荷物の最寄りバースを乱数で作る。
+    """実到着、基準荷役時間、荷物の最寄りバースを乱数で作る。
 
     荷役係数は1 + 0.1 × 最寄りバースからの番号の差。速度や実距離は扱わない。
-    実験ではcreate_normal_plan()で到着を正常計画の開始へ調整する。
+    正常申告は実到着と同じにし、計画作成後も実到着を動かさない。
     """
     rng = np.random.default_rng(seed)
     # 固定隻数は従来の計算を保つ。期間指定では、期間内の到着を順に作る。
@@ -45,7 +45,7 @@ def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
             arrival += rng.exponential(mean_interarrival_time)
         arrivals = np.array(arrivals)
         num_ships = len(arrivals)
-    # 到着候補の隻数が違っても、同じseedなら先頭から同じ船の属性を使う。
+    # 隻数が違っても、同じseedなら先頭から同じ船の属性を使う。
     ship_rng = np.random.default_rng(seed + 100000)
     base_times, cargo_berths = [], []
     for _ in range(num_ships):
@@ -110,27 +110,6 @@ def create_plan(data):
             "planned_completion_time": completion,
         })
     return pd.DataFrame(plan)
-
-
-def create_normal_plan(data):
-    """到着候補から予約を作り、到着を荷役開始に合わせた元データと計画を返す。
-
-    調整は攻撃前に1回だけ行う。速度や燃料は計算せず、到着候補を
-    後ろへ調整した時間を記録する。入力と荷役時間は変更しない。
-    """
-    normal_plan = create_plan(data)
-    start_times = normal_plan.set_index("ship")["planned_start_time"]
-    coordinated = data.copy(deep=True)
-    coordinated["candidate_arrival_time"] = data["actual_arrival_time"]
-    coordinated["actual_arrival_time"] = coordinated["ship"].map(start_times)
-    coordinated["reported_arrival_time"] = coordinated["actual_arrival_time"]
-    coordinated["arrival_adjustment_time"] = (
-        coordinated["actual_arrival_time"] - coordinated["candidate_arrival_time"]
-    )
-    # バース・順番・予約時刻を保持し、到着情報だけを調整後の値にそろえる。
-    normal_plan["actual_arrival_time"] = normal_plan["planned_start_time"]
-    normal_plan["reported_arrival_time"] = normal_plan["planned_start_time"]
-    return coordinated, normal_plan
 
 
 def create_execution_result(planned_ship, berth_index, start_time, handling_time, earliest_start_time):
@@ -254,28 +233,28 @@ def summarize_results(run_metrics):
     attacks = run_metrics[run_metrics["scenario"] != "normal"].copy()
     joined = attacks.join(normal[list(METRICS)], on=normal_keys, rsuffix="_normal")
     cells = ["experiment_group", "demand_multiplier", "target_position", "shift_hours", "scenario", "policy"]
-    summaries, comparisons = [], []
+    summaries = []
     for key, rows in joined.groupby(cells, sort=False):
         labels = dict(zip(cells, key))
         for metric in METRICS:
             values, baseline = rows[metric], rows[f"{metric}_normal"]
             differences = values - baseline
             summaries.append({**labels, "metric": metric, "trials": len(rows),
-                              "mean": values.mean(), "std": values.std(ddof=1)})
-            comparisons.append({**labels, "metric": metric, "trials": len(rows),
-                                "normal_mean": baseline.mean(), "attack_mean": values.mean(),
+                                "mean": values.mean(), "std": values.std(ddof=1),
+                                "normal_mean": baseline.mean(),
                                 "mean_difference": differences.mean(), "std_difference": differences.std(ddof=1),
                                 "min_difference": differences.min(), "max_difference": differences.max(),
                                 "increased_trials": int((differences > 1e-9).sum()),
                                 "decreased_trials": int((differences < -1e-9).sum()),
                                 "unchanged_trials": int((differences.abs() <= 1e-9).sum())})
-    comparison = pd.DataFrame(comparisons)
+    summary = pd.DataFrame(summaries)
     match = [c for c in cells if c != "policy"] + ["metric"]
-    fixed = comparison[comparison["policy"] == "fixed"].set_index(match)["mean_difference"]
-    comparison["mean_mitigation_vs_fixed"] = (
-        comparison.set_index(match).index.map(fixed) - comparison["mean_difference"].to_numpy()
+    fixed = summary[summary["policy"] == "fixed"].set_index(match)["mean_difference"]
+    summary["mean_mitigation_vs_fixed"] = (
+        summary.set_index(match).index.map(fixed) - summary["mean_difference"].to_numpy()
     )
-    return pd.DataFrame(summaries), comparison
+    comparison = summary.drop(columns="std").rename(columns={"mean": "attack_mean"})
+    return summary, comparison
 
 
 def execute_policy(data, plan, policy):
@@ -294,40 +273,22 @@ def select_targets(data, full_study, target_ship):
             for label, fraction in (("early", 0.1), ("middle", 0.5), ("late", 0.9))]
 
 
-def calculate_plan_diagnostics(data, normal_plan, mean_interval, duration_hours):
-    """正常計画の到着調整量・予約間隔・期間外到着などをまとめる。"""
-    gaps = []
-    for _, berth_plan in normal_plan.groupby("assigned_berth"):
-        ordered = berth_plan.sort_values("planned_start_time")
-        starts = ordered["planned_start_time"].to_numpy()
-        completions = ordered["planned_completion_time"].to_numpy()
-        gaps.extend(starts[1:] - completions[:-1])
-
-    arrivals_after_period = 0
-    if duration_hours is not None:
-        arrivals_after_period = int((data["actual_arrival_time"] >= duration_hours).sum())
-
+def calculate_plan_diagnostics(data, normal_plan, mean_interval):
+    """正常入力の隻数・到着間隔と、到着・計画完了の範囲をまとめる。"""
     return {
         "num_ships": len(data),
-        "mean_candidate_interval": mean_interval,
-        "mean_arrival_adjustment": data["arrival_adjustment_time"].mean(),
-        "max_arrival_adjustment": data["arrival_adjustment_time"].max(),
+        "mean_interarrival_time": mean_interval,
         "last_actual_arrival": data["actual_arrival_time"].max(),
-        "arrivals_after_period": arrivals_after_period,
-        "mean_reserved_gap": np.mean(gaps) if gaps else np.nan,
-        "zero_reserved_gaps": int((np.array(gaps) <= 1e-9).sum()),
-        "reserved_work_hours": normal_plan["handling_time"].sum(),
+        "last_planned_completion": normal_plan["planned_completion_time"].max(),
     }
 
 
 def run_normal_cases(data, normal_plan, shared, policies):
-    """各方式の正常運用を1回ずつ計算し、待ち0の確認と結果の記録を行う。"""
+    """各方式の正常運用を1回ずつ計算する。正常時にも待ちを認める。"""
     normal_schedules = {}
     schedules = []
     for policy in policies:
         normal = execute_policy(data, normal_plan, policy)
-        if (normal["waiting_time"].abs() > 1e-9).any():
-            raise ValueError(f"seed={shared['seed']}・{policy}：正常時の待ちが0ではありません。")
         normal_schedules[policy] = normal.set_index("ship")
         schedules.append(normal.assign(
             **shared,
@@ -423,11 +384,11 @@ def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
     """条件確認 → 正常計画 → 条件別比較 → 集計の順に実験する。保存・表示は行わない。
 
     full_studyでは3需要水準×3対象位置×±2/4/8時間×3方式を比較する。
-    同じバース内調整・バース変更ともに前倒し時間の制限は設けない。
+    実到着は生成した時刻で固定し、調整2方式の前倒し時間は制限しない。
     """
     if trials < 1 or num_berths < 1 or seed < 0 or (duration_hours is None and num_ships < 2):
         raise ValueError("試行数・バース数は1以上、seedは0以上、固定隻数は2以上にしてください。")
-    for value, name in ((mean_interarrival_time, "到着候補間隔"), (duration_hours, "生成期間")):
+    for value, name in ((mean_interarrival_time, "到着間隔"), (duration_hours, "生成期間")):
         if value is not None and (not np.isfinite(value) or value <= 0):
             raise ValueError(f"{name}は有限で正の値にしてください。")
     if not np.isfinite(shift_hours) or shift_hours < 0:
@@ -446,21 +407,21 @@ def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
         for trial in range(1, trials + 1):
             trial_seed = seed + trial - 1
             mean_interval = mean_interarrival_time / demand
-            raw = generate_ship_data(
+            data = generate_ship_data(
                 num_ships=num_ships,
                 num_berths=num_berths,
                 seed=trial_seed,
                 mean_interarrival_time=mean_interval,
                 duration_hours=duration_hours,
             )
-            if len(raw) < 2 or (not full_study and target_ship not in raw["ship"].values):
+            if len(data) < 2 or (not full_study and target_ship not in data["ship"].values):
                 raise ValueError(f"seed={trial_seed}：比較対象を含む船を生成できません。期間・間隔・隻数を見直してください。")
-            data, normal_plan = create_normal_plan(raw)
+            normal_plan = create_plan(data)
             shared = {"demand_multiplier": demand, "trial": trial, "seed": trial_seed}
             inputs.append(data.assign(**shared))
             plans.append(normal_plan.assign(**shared, scenario="normal", target_position="baseline",
                                              target_ship="", shift_hours=0.0))
-            diagnosis = calculate_plan_diagnostics(data, normal_plan, mean_interval, duration_hours)
+            diagnosis = calculate_plan_diagnostics(data, normal_plan, mean_interval)
             diagnostics.append({**shared, **diagnosis})
             targets = select_targets(data, full_study, target_ship)
             widths = (2.0, 4.0, 8.0) if full_study else (shift_hours,)

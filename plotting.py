@@ -27,11 +27,12 @@ PLOT_STYLE = {
 
 
 def plot_results(results, output, full_study):
-    """単一設定は比較図1つ、主実験は条件別比較とスケジュールの4図を保存する。"""
+    """単一設定は2図、主実験は条件別比較・スケジュール・概要の5図を保存する。"""
     with plt.rc_context(PLOT_STYLE):  # この描画中だけ共通設定を使う。
         plot_comparisons(results["summary"], output, full_study)
         if full_study:
             plot_schedule_example(results, output)
+        plot_waiting_overview(results, output)
 
 
 def save_figure(fig, output, filename):
@@ -44,7 +45,8 @@ def save_figure(fig, output, filename):
 
 def setup_waiting_axis(axis, scenario, xlabel, *, xticks=None, xticklabels=None):
     """待ち時間の比較図に共通する軸ラベル・範囲・グリッドを設定する。"""
-    axis.set(title=f"{scenario.capitalize()} report", xlabel=xlabel, ylim=(0, None), axisbelow=True)
+    axis.set(title=f"{scenario.capitalize()} report", xlabel=xlabel, axisbelow=True)
+    axis.axhline(0, color="0.45", linewidth=0.8)
     axis.grid(axis="y")
     if xticks is not None:
         axis.set_xticks(xticks, xticklabels)
@@ -52,7 +54,8 @@ def setup_waiting_axis(axis, scenario, xlabel, *, xticks=None, xticklabels=None)
 
 def setup_schedule_axes(axes, target_arrival, start, end):
     """スケジュール図の見出し・バース目盛り・到着線・表示範囲を設定する。"""
-    labels = ["Normal"] + [POLICY_NAMES[policy] for policy in POLICIES]
+    labels = [f"{POLICY_NAMES[policy]}: {scenario}"
+              for policy in POLICIES for scenario in ("Normal", "Tampered")]
     for axis, label in zip(axes, labels):
         axis.axvline(target_arrival, color=SCHEDULE_COLORS["arrival"], linestyle="--", linewidth=1)
         axis.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
@@ -80,7 +83,7 @@ def plot_comparisons(summary, output, full_study):
     middle_target = main[main.target_position == "middle"]
     plot_waiting_comparison(
         middle_target[middle_target.shift_hours == 4], output, "02_demand",
-        x_column="demand_multiplier", xlabel="Candidate demand / observed forecast reference",
+        x_column="demand_multiplier", xlabel="Arrival demand / forecast reference",
         subtitle="Middle target; report shift +/-4 h",
     )
     plot_waiting_comparison(
@@ -91,7 +94,7 @@ def plot_comparisons(summary, output, full_study):
 
 
 def plot_waiting_comparison(data, output, filename, *, x_column, xlabel, subtitle):
-    """条件別の平均と、上側だけ標本標準偏差1個分のひげを描く。"""
+    """正常時からの増減の平均と、上側だけ対応差の標本標準偏差1個分を描く。"""
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.5), sharey=True)
     if x_column == "target_position":
         positions = ["early", "middle", "late"]
@@ -103,19 +106,19 @@ def plot_waiting_comparison(data, output, filename, *, x_column, xlabel, subtitl
         for policy in data.policy.unique():
             selected = data[(data.scenario == scenario) & (data.policy == policy)]
             rows = selected.set_index(x_column).reindex(positions)
-            deviations = rows["std"].fillna(0).to_numpy()
-            axis.errorbar(xvalues, rows["mean"], yerr=np.array([np.zeros(len(rows)), deviations]),
+            deviations = rows["std_difference"].fillna(0).to_numpy()
+            axis.errorbar(xvalues, rows["mean_difference"], yerr=np.array([np.zeros(len(rows)), deviations]),
                           marker="o", color=COLORS[policy], label=POLICY_NAMES[policy])
         setup_waiting_axis(axis, scenario, xlabel, xticks=xvalues, xticklabels=positions)
-    axes[0].set_ylabel("Other ships: average waiting time (hours)")
+    axes[0].set_ylabel("Other ships: change from normal waiting (hours)")
     axes[1].legend()
-    fig.suptitle(subtitle + "; whiskers: +1 sample SD across paired input plans")
+    fig.suptitle(subtitle + "; whiskers: +1 sample SD of paired changes")
     save_figure(fig, output, filename)
 
 
 def select_schedule_example(results):
     """説明用の試行を選び、その正常運用と改ざん後の運用を取り出す。"""
-    # 平均を代表する例ではない。事前指定セル内でAの他船待ちが最大の例を説明用に選ぶ。
+    # 平均を代表する例ではない。事前指定セル内でAの他船待ちの増分が最大の例を選ぶ。
     runs = results["run_metrics"]
     examples = runs[
         (runs.experiment_group == "main")
@@ -124,15 +127,23 @@ def select_schedule_example(results):
         & (runs.shift_hours == 4)
         & (runs.scenario == "early")
         & (runs.policy == "fixed")
-    ]
-    example = examples.sort_values(["other_average_waiting_time", "trial"], ascending=[False, True]).iloc[0]
+    ].copy()
+    normal_runs = runs[
+        (runs.demand_multiplier == 1) & (runs.target_position == "middle")
+        & (runs.scenario == "normal") & (runs.policy == "fixed")
+    ].set_index("trial")
+    examples["waiting_increase"] = (
+        examples.other_average_waiting_time
+        - examples.trial.map(normal_runs.other_average_waiting_time)
+    )
+    example = examples.sort_values(["waiting_increase", "trial"], ascending=[False, True]).iloc[0]
     schedules = results["schedules"]
     schedules = schedules[
         (schedules.experiment_group == "main")
         & (schedules.demand_multiplier == 1)
         & (schedules.trial == example.trial)
     ]
-    normal = schedules[(schedules.scenario == "normal") & (schedules.policy == "fixed")]
+    normal = schedules[schedules.scenario == "normal"]
     attacked = schedules[
         (schedules.target_position == "middle")
         & (schedules.shift_hours == 4)
@@ -156,15 +167,44 @@ def draw_ship_schedule(axis, schedule, target, start, end):
 
 
 def plot_schedule_example(results, output):
-    """事前指定した条件内で、固定方式の他船待ちが最大の例を描く。"""
+    """事前指定した条件内で、固定方式の他船待ちの増分が最大の例を描く。"""
     example, normal, attacked = select_schedule_example(results)
     target = example.target_ship
     target_arrival = attacked.loc[attacked.ship == target, "actual_arrival_time"].iloc[0]
     start, end = max(0, target_arrival - 8), target_arrival + 24
-    fig, axes = plt.subplots(len(POLICIES) + 1, 1, figsize=(12, 8), sharex=True)
-    tables = [normal] + [attacked[attacked.policy == policy] for policy in POLICIES]
+    fig, axes = plt.subplots(len(POLICIES) * 2, 1, figsize=(12, 11), sharex=True)
+    tables = [table[table.policy == policy]
+              for policy in POLICIES for table in (normal, attacked)]
     for axis, table in zip(axes, tables):
         draw_ship_schedule(axis, table, target, start, end)
     setup_schedule_axes(axes, target_arrival, start, end)
     fig.suptitle(f"Illustrative maximum in predefined cell: seed {int(example.seed)}, {target}, early report -4 h")
     save_figure(fig, output, "04_schedule_example")
+
+
+def plot_waiting_overview(results, output):
+    """全条件の平均で、正常・改ざん時の絶対値と他船への増減を並べる。"""
+    runs = results["run_metrics"]
+    normal = runs[runs.scenario == "normal"].drop_duplicates(
+        ["demand_multiplier", "trial", "policy"]
+    )
+    attacks = runs[runs.scenario != "normal"]
+    other = results["summary"]
+    other = other[other.metric == "other_average_waiting_time"]
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.5))
+    for scenario, label in (("normal", "Normal"), ("early", "Early report"), ("late", "Late report")):
+        rows = normal if scenario == "normal" else attacks[attacks.scenario == scenario]
+        means = rows.groupby("policy").average_waiting_time.mean().reindex(POLICIES)
+        axes[0].plot(range(len(POLICIES)), means, marker="o", label=label)
+        if scenario != "normal":
+            changes = other[other.scenario == scenario].groupby("policy").mean_difference.mean().reindex(POLICIES)
+            axes[1].plot(range(len(POLICIES)), changes, marker="o", label=label)
+    for axis in axes:
+        axis.set_xticks(range(len(POLICIES)), list(POLICY_NAMES.values()))
+        axis.grid(axis="y")
+        axis.legend()
+    axes[0].set(title="All ships: normal and tampered operations", ylabel="Average waiting time (hours)", ylim=(0, None))
+    axes[1].set(title="Other ships: tampered minus same-policy normal", ylabel="Change in average waiting time (hours)")
+    axes[1].axhline(0, color="0.45", linewidth=0.8)
+    fig.suptitle("Overview: equal weight per input trial and experimental condition")
+    save_figure(fig, output, "05_waiting_overview")
