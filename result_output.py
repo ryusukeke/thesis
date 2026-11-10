@@ -3,12 +3,11 @@
 import hashlib
 import json
 from pathlib import Path
-import shutil
 
 import numpy as np
 import pandas as pd
 
-from simulation import (DURATION_HOURS, EARLY_START_LIMIT, HANDLING_SCALE,
+from simulation import (DURATION_HOURS, HANDLING_SCALE,
                         HANDLING_SHAPE, NUM_BERTHS, POLICIES, SHIFT_HOURS,
                         STUDY_SHIFT_HOURS)
 
@@ -33,7 +32,7 @@ def create_config(args, results, interval):
     attacks = attacks[attacks.scenario != "normal"]
     return {
         # 実験の対象条件
-        "model_version": "discrete_4berth_bounded_advance_v2",
+        "model_version": "discrete_4berth_unbounded_advance_v3",
         "full_study": args.study,
         "trials_per_cell": args.trials,
         "first_seed": args.seed,
@@ -46,9 +45,8 @@ def create_config(args, results, interval):
         "demand_multipliers": [0.75, 1.0, 1.5] if args.study else [1.0],
         "target_positions": [0.1, 0.5, 0.9] if args.study else ["V5"],
         "shift_magnitudes_hours": list(STUDY_SHIFT_HOURS) if args.study else [SHIFT_HOURS],
-        "main_early_start_limit_hours": EARLY_START_LIMIT,
-        "unrestricted_early_start_limit_hours": None,
-        "sensitivity": "reassign, middle target, +/-4h, limit0" if args.study else None,
+        "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
+        "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
         "policies": list(POLICIES),
         # 計算モデルの前提
         "handling_shape": HANDLING_SHAPE,
@@ -60,12 +58,16 @@ def create_config(args, results, interval):
         "plan_update": "keep_normal_reservations; replan_once_if_report_changes",
         "initial_berth_state": "all_empty",
         "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
-        "same_time_order": "arrivals_and_releases_and_completions_together; stable_input_order",
+        "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
         # 実際に計算した件数
         "distinct_normal_plans": len(results["plan_diagnostics"]),
         "main_attack_executions": int((attacks.experiment_group == "main").sum()),
-        "sensitivity_attack_executions": int((attacks.experiment_group == "sensitivity").sum()),
         "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+        "normal_plan_diagnostics": {
+            "max_arrival_adjustment_hours": results["plan_diagnostics"]["max_arrival_adjustment"].max(),
+            "arrivals_after_period": int(results["plan_diagnostics"]["arrivals_after_period"].sum()),
+            "last_actual_arrival_hours": results["plan_diagnostics"]["last_actual_arrival"].max(),
+        },
         # 再現確認に必要な版・ファイル・資料
         "numpy_version": np.__version__,
         "pandas_version": pd.__version__,
@@ -80,13 +82,11 @@ def create_config(args, results, interval):
 
 
 def save_results(results, config, output):
-    """計算結果7表・実験条件・参照値の根拠3ファイルを保存する。"""
+    """試行別結果・集計の2表と実験条件を保存する。"""
     output.mkdir(parents=True, exist_ok=True)
-    for name, table in results.items():
-        table.to_csv(output / f"{name}.csv", index=False, encoding="utf-8-sig")
+    for name in ("run_metrics", "summary"):
+        results[name].to_csv(output / f"{name}.csv", index=False, encoding="utf-8-sig")
     (output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
-    for name in REFERENCE_FILES:
-        shutil.copyfile(REFERENCE_DIR / name, output / name)
 
 
 def print_summary(results, interval, output):
@@ -94,11 +94,9 @@ def print_summary(results, interval, output):
     runs = results["run_metrics"]
     normal = runs[runs.scenario == "normal"]
     attacks = runs[runs.scenario != "normal"]
-    main_attacks = attacks[attacks.experiment_group == "main"]
-    sensitivity_attacks = attacks[attacks.experiment_group == "sensitivity"]
     print(
         f"正常計画 {len(results['plan_diagnostics'])}組、"
-        f"主実験の改ざん運用 {len(main_attacks)}ケース、補足 {len(sensitivity_attacks)}ケース"
+        f"3方式の改ざん運用 {len(attacks)}ケース"
     )
     print(
         f"正常時の最大待ち時間：{normal.max_waiting_time.max():.9f}時間。"
@@ -106,6 +104,6 @@ def print_summary(results, interval, output):
     )
     print("下表は全主実験条件を同じ重みで平均した概要です。条件別の比較はsummary.csvを参照してください。")
     metrics = ["other_average_waiting_time", "other_waiting_ships", "berth_changes"]
-    print(main_attacks.groupby(["policy", "scenario"])[metrics].mean().round(4).to_string())
-    print("実測の荷役時間・実待ち時間による検証ではありません。到着調整量はplan_diagnostics.csvに記録します。")
+    print(attacks.groupby(["policy", "scenario"])[metrics].mean().round(4).to_string())
+    print("実測の荷役時間・実待ち時間による検証ではありません。到着調整の概要はconfig.jsonに記録します。")
     print("保存なし" if output is None else f"保存先：{output.resolve()}")

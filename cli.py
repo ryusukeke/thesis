@@ -9,10 +9,10 @@ def create_parser():
     parser = argparse.ArgumentParser(
         description="4バースの到着情報改ざん実験を実行し、設定・CSV・論文用グラフを保存する。"
     )
-    parser.add_argument("--study", action="store_true", help="神戸港の予定規模を参照した主実験と補足実験を実行")
+    parser.add_argument("--study", action="store_true", help="神戸港の予定規模を参照した3方式の主実験を実行")
     parser.add_argument("--trials", type=int, default=10)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", type=Path, default=Path("results/final_20261105"))
+    parser.add_argument("--output", type=Path, default=Path("results/final_20261111"))
     parser.add_argument("--no-plot", action="store_true")
     parser.add_argument("--no-save", action="store_true")
     return parser

@@ -2,7 +2,6 @@
 
 import matplotlib
 import numpy as np
-import pandas as pd
 
 from simulation import POLICIES
 
@@ -13,15 +12,13 @@ POLICY_NAMES = {
     "fixed": "A: Fixed plan",
     "same_berth": "B: Same berth",
     "reassign": "C: Berth changes",
-    "unrestricted": "D: Unrestricted",
 }
 # 表示設定。C0、C1、…はMatplotlib標準の色で、方式と色の対応を全図で揃える。
 COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
 SCHEDULE_COLORS = {"target": "C3", "other": "C0", "arrival": "0.35"}
 FIGURE_SIZES = {  # 幅・高さ（インチ）
     "comparison": (11.5, 4.5),
-    "advance_limit": (10, 4),
-    "schedule": (12, 10),
+    "schedule": (12, 8),
 }
 SHIP_LABEL_SIZE = 7
 PLOT_STYLE = {
@@ -35,11 +32,10 @@ PLOT_STYLE = {
 
 
 def plot_results(results, output, full_study):
-    """単一設定は比較図1つ、主実験は比較図・上限比較・スケジュールの5図を保存する。"""
+    """単一設定は比較図1つ、主実験は条件別比較とスケジュールの4図を保存する。"""
     with plt.rc_context(PLOT_STYLE):  # この描画中だけ共通設定を使う。
         plot_comparisons(results["summary"], output, full_study)
         if full_study:
-            plot_advance_limits(results["summary"], output)
             plot_schedule_example(results, output)
 
 
@@ -122,31 +118,6 @@ def plot_waiting_comparison(data, output, filename, *, x_column, xlabel, subtitl
     save_figure(fig, output, filename)
 
 
-def plot_advance_limits(summary, output):
-    """前倒し上限0時間・2時間・無制限を同じ条件で比較する。"""
-    # 同じ中盤・4時間の条件で、前倒し0/2/無制限を比べる。0だけ補足実験から取る。
-    subset = summary[(summary.demand_multiplier == 1) & (summary.target_position == "middle")
-                     & (summary.shift_hours == 4) & (summary.metric == "other_average_waiting_time")]
-    fig, axes = plt.subplots(1, 2, figsize=FIGURE_SIZES["advance_limit"], sharey=True)
-    for axis, scenario in zip(axes, ("early", "late")):
-        values, errors = [], []
-        for group, policy in (("sensitivity", "reassign"), ("main", "reassign"), ("main", "unrestricted")):
-            selected = subset[
-                (subset.experiment_group == group)
-                & (subset.policy == policy)
-                & (subset.scenario == scenario)
-            ]
-            row = selected.iloc[0]
-            values.append(row["mean"])
-            errors.append(0 if pd.isna(row["std"]) else row["std"])
-        axis.bar(["0 h", "2 h", "Unlimited"], values, yerr=np.array([np.zeros(len(errors)), errors]),
-                 color=[COLORS["fixed"], COLORS["reassign"], COLORS["unrestricted"]])
-        setup_waiting_axis(axis, scenario, "Permitted start before updated planned time")
-    axes[0].set_ylabel("Other ships: average waiting time (hours)")
-    fig.suptitle("Berth changes allowed; baseline demand; middle target; +/-4 h; +1 sample SD")
-    save_figure(fig, output, "04_advance_limit")
-
-
 def select_schedule_example(results):
     """説明用の試行を選び、その正常運用と改ざん後の運用を取り出す。"""
     # 平均を代表する例ではない。事前指定セル内でAの他船待ちが最大の例を説明用に選ぶ。
@@ -195,10 +166,10 @@ def plot_schedule_example(results, output):
     target = example.target_ship
     target_arrival = attacked.loc[attacked.ship == target, "actual_arrival_time"].iloc[0]
     start, end = max(0, target_arrival - 8), target_arrival + 24
-    fig, axes = plt.subplots(5, 1, figsize=FIGURE_SIZES["schedule"], sharex=True)
+    fig, axes = plt.subplots(len(POLICIES) + 1, 1, figsize=FIGURE_SIZES["schedule"], sharex=True)
     tables = [normal] + [attacked[attacked.policy == policy] for policy in POLICIES]
     for axis, table in zip(axes, tables):
         draw_ship_schedule(axis, table, target, start, end)
     setup_schedule_axes(axes, target_arrival, start, end)
     fig.suptitle(f"Illustrative maximum in predefined cell: seed {int(example.seed)}, {target}, early report -4 h")
-    save_figure(fig, output, "05_schedule_example")
+    save_figure(fig, output, "04_schedule_example")

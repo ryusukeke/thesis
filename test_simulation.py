@@ -1,12 +1,15 @@
 """手計算、情報の分離、物理制約、対応比較、保存済み参照値の整合を確認する。"""
 
 import json
+from pathlib import Path
+import tempfile
 import unittest
 
 import numpy as np
 import pandas as pd
 
-from result_output import REFERENCE_DIR
+from cli import create_parser
+from result_output import REFERENCE_DIR, create_config, save_results
 from simulation import (POLICIES, apply_attack, create_normal_plan, create_plan,
                         execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
                         run_experiment, select_targets)
@@ -30,7 +33,7 @@ class SimulationTests(unittest.TestCase):
         np.testing.assert_array_equal(data.arrival_adjustment_time, [0, 1, 3])
         for policy in POLICIES:
             schedule = (execute_fixed_plan(plan) if policy == "fixed" else
-                        execute_adjusted_plan(data, plan, policy, None if policy == "unrestricted" else 2))
+                        execute_adjusted_plan(data, plan, policy))
             np.testing.assert_array_equal(schedule.waiting_time, [0, 0, 0])
             np.testing.assert_array_equal(schedule.start_time, [0, 3, 6])
 
@@ -77,34 +80,50 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(late.loc['V2', 'reported_arrival_time'], 7)
         self.assertEqual(late.loc['V2', 'waiting_time'], 6)
 
-    def test_advance_release_is_an_event_even_without_arrival_or_completion(self):
+    def test_both_adjusted_policies_start_without_planned_time_limit(self):
         data, _ = create_normal_plan(small_data([0, 2, 3], [3, 3, 3]))
         attacked = apply_attack(data, 'V3', -4)
         plan = create_plan(attacked)
-        bounded = execute_adjusted_plan(attacked, plan, 'same_berth', 2).set_index('ship')
-        # 4時には到着も完了もないが、V2の開始制限が解除される。
-        self.assertEqual(bounded.loc['V2', 'start_time'], 4)
-        self.assertEqual(bounded.loc['V2', 'waiting_time'], 1)
-        self.assertEqual(bounded.loc['V3', 'start_time'], 7)
-        free = execute_adjusted_plan(attacked, plan, 'unrestricted', None)
-        np.testing.assert_array_equal(free.waiting_time, [0, 0, 0])
-        zero = execute_adjusted_plan(attacked, plan, 'reassign', 0)
-        self.assertTrue((zero.start_time >= zero.planned_start_time).all())
+        for policy in ('same_berth', 'reassign'):
+            with self.subTest(policy=policy):
+                schedule = execute_adjusted_plan(attacked, plan, policy).set_index('ship')
+                # 計画開始6時のV2を到着した3時に開始し、未到着のV3を待たない。
+                self.assertEqual(schedule.loc['V2', 'start_time'], 3)
+                self.assertEqual(schedule.loc['V3', 'start_time'], 6)
+                np.testing.assert_array_equal(schedule.waiting_time, [0, 0, 0])
+                # 遅い申告でも2時間を超える前倒しを許し、到着時点で開始する。
+                late = apply_attack(data, 'V2', 8)
+                late_schedule = execute_adjusted_plan(late, create_plan(late), policy).set_index('ship')
+                self.assertEqual(late_schedule.loc['V2', 'planned_start_time'], 11)
+                self.assertEqual(late_schedule.loc['V2', 'start_time'], 3)
 
-    def test_reassignment_uses_selected_berth_time_and_respects_advance_limit(self):
+    def test_reassignment_uses_free_berth_and_its_handling_time(self):
         raw = small_data([0, 0, 1], [4, 1, 1])
         raw['handling_time_B2'] = [10., 3., 10.]
         data, _ = create_normal_plan(raw)
         attacked = apply_attack(data, 'V2', 4)
         plan = create_plan(attacked)
-        same = execute_adjusted_plan(attacked, plan, 'same_berth', 2).set_index('ship')
-        changed = execute_adjusted_plan(attacked, plan, 'reassign', 2).set_index('ship')
+        same = execute_adjusted_plan(attacked, plan, 'same_berth').set_index('ship')
+        changed = execute_adjusted_plan(attacked, plan, 'reassign').set_index('ship')
         self.assertEqual(same.loc['V2', 'start_time'], 4)
         self.assertEqual(changed.loc['V2', 'planned_berth'], 'B1')
         self.assertEqual(changed.loc['V2', 'assigned_berth'], 'B2')
-        self.assertEqual(changed.loc['V2', 'start_time'], 2)
+        self.assertEqual(changed.loc['V2', 'start_time'], 0)
         self.assertEqual(changed.loc['V2', 'handling_time'], 3)
-        self.assertEqual(changed.loc['V2', 'completion_time'], 5)
+        self.assertEqual(changed.loc['V2', 'completion_time'], 3)
+
+    def test_early_start_does_not_interrupt_handling_for_later_ship(self):
+        data = small_data([0, 4], [10, 2])
+        attacked = apply_attack(data, 'V1', 8)
+        plan = create_plan(attacked)
+        fixed = execute_fixed_plan(plan).set_index('ship')
+        self.assertEqual(fixed.loc['V2', 'waiting_time'], 0)
+        for policy in ('same_berth', 'reassign'):
+            schedule = execute_adjusted_plan(attacked, plan, policy).set_index('ship')
+            self.assertEqual(schedule.loc['V1', 'start_time'], 0)
+            self.assertEqual(schedule.loc['V1', 'completion_time'], 10)
+            self.assertEqual(schedule.loc['V2', 'start_time'], 10)
+            self.assertEqual(schedule.loc['V2', 'waiting_time'], 6)
 
     def test_all_cases_preserve_physics_inputs_and_paired_metrics(self):
         results = run_experiment(trials=2, duration_hours=None, num_ships=25, mean_interarrival_time=0.3)
@@ -143,13 +162,16 @@ class SimulationTests(unittest.TestCase):
         np.testing.assert_allclose(result['paired_comparison'].mean_difference, 0)
         self.assertTrue((result['paired_comparison'].unchanged_trials == 1).all())
 
-    def test_full_study_counts_targets_and_sensitivity_share_inputs(self):
+    def test_full_study_counts_targets_and_three_policies_share_inputs(self):
         result = run_experiment(trials=1, full_study=True)
         runs = result['run_metrics']
         self.assertEqual(len(result['plan_diagnostics']), 3)
-        self.assertEqual(len(runs.query("experiment_group=='main' and scenario!='normal'")), 216)
-        self.assertEqual(len(runs.query("experiment_group=='sensitivity' and scenario!='normal'")), 6)
-        self.assertEqual(set(runs.query("experiment_group=='sensitivity'").early_start_limit_hours), {0.0})
+        self.assertEqual(POLICIES, ('fixed', 'same_berth', 'reassign'))
+        self.assertEqual(len(runs.query("scenario!='normal'")), 162)
+        self.assertEqual(set(runs.experiment_group), {'main'})
+        self.assertNotIn('early_start_limit_hours', runs.columns)
+        reassign = result['schedules'].query("policy=='reassign'")
+        np.testing.assert_allclose(reassign.waiting_time, 0)
         for _, data in result['ship_data'].groupby('demand_multiplier'):
             chosen = select_targets(data, True, 'V5')
             ordered = data.sort_values('actual_arrival_time', kind='stable').ship.tolist()
@@ -170,8 +192,9 @@ class SimulationTests(unittest.TestCase):
 
     def test_invalid_conditions_are_rejected_without_reselecting_trials(self):
         for settings in ({'trials':0}, {'num_berths':0}, {'seed':-1}, {'target_ship':'V9999'},
-                         {'shift_hours':-1}, {'early_start_limit':-1}, {'early_start_limit':float('nan')},
+                         {'shift_hours':-1}, {'shift_hours':float('nan')},
                          {'duration_hours':0}, {'mean_interarrival_time':0}, {'policies':('bad',)},
+                         {'policies':('unrestricted',)},
                          {'duration_hours':None,'num_ships':1}):
             with self.subTest(settings=settings), self.assertRaises(ValueError):
                 run_experiment(**settings)
@@ -190,6 +213,23 @@ class SimulationTests(unittest.TestCase):
         for row in daily.itertuples():
             self.assertEqual(row.scheduled_ship_days, int((counted.snapshot_date == row.snapshot_date).sum()))
         self.assertEqual(reference['mean_candidate_interval_hours'], 24 * len(daily) / len(counted))
+
+    def test_saved_output_contains_only_conditions_run_metrics_and_summary(self):
+        args = create_parser().parse_args(['--trials', '1', '--no-plot'])
+        results = run_experiment(trials=1)
+        config = create_config(args, results, 3.0)
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            save_results(results, config, output)
+            self.assertEqual({path.name for path in output.iterdir()},
+                             {'config.json', 'run_metrics.csv', 'summary.csv'})
+            for name in ('run_metrics', 'summary'):
+                saved = pd.read_csv(output / f'{name}.csv')
+                pd.testing.assert_frame_equal(saved, results[name], check_dtype=False)
+            saved_config = json.loads((output / 'config.json').read_text())
+            self.assertEqual(saved_config['first_seed'], 42)
+            self.assertEqual(saved_config['policies'], ['fixed', 'same_berth', 'reassign'])
+            self.assertIn('normal_plan_diagnostics', saved_config)
 
 
 if __name__ == '__main__':

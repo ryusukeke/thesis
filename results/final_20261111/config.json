@@ -1,0 +1,71 @@
+{
+  "model_version": "discrete_4berth_unbounded_advance_v3",
+  "full_study": true,
+  "trials_per_cell": 10,
+  "first_seed": 42,
+  "last_seed": 51,
+  "num_berths": 4,
+  "num_ships": null,
+  "candidate_duration_hours": 168.0,
+  "base_mean_candidate_interval_hours": 3.029126213592233,
+  "interval_source": "kobe_day_ahead_forecasts",
+  "demand_multipliers": [
+    0.75,
+    1.0,
+    1.5
+  ],
+  "target_positions": [
+    0.1,
+    0.5,
+    0.9
+  ],
+  "shift_magnitudes_hours": [
+    2.0,
+    4.0,
+    8.0
+  ],
+  "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
+  "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
+  "policies": [
+    "fixed",
+    "same_berth",
+    "reassign"
+  ],
+  "handling_shape": 2,
+  "handling_scale": 2.4,
+  "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
+  "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
+  "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
+  "normal_arrival_adjustment": "normal_reserved_start; no upper limit; no speed or fuel model",
+  "plan_update": "keep_normal_reservations; replan_once_if_report_changes",
+  "initial_berth_state": "all_empty",
+  "period_end": "finish_all_candidate_ships_including_adjusted_arrivals_after_period",
+  "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
+  "distinct_normal_plans": 30,
+  "main_attack_executions": 1620,
+  "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+  "normal_plan_diagnostics": {
+    "max_arrival_adjustment_hours": 12.290694354307334,
+    "arrivals_after_period": 12,
+    "last_actual_arrival_hours": 174.2320806272513
+  },
+  "numpy_version": "2.5.1",
+  "pandas_version": "3.0.3",
+  "code_sha256": {
+    "simulation.py": "68e465872013a4069d7d42f6c10beb9446b94ae30a9b3c3bbd1c1f4e74dc72d2",
+    "main.py": "5ccfdd94f4a97de8463a5360887f5cdc1142113f861e17def76958e1cefa8306",
+    "cli.py": "f72a7ebd1fff7b5264cdaef982c7b6740b4bdbd44379411b4cae8cd81efad489",
+    "result_output.py": "8d2bdbaff7d18548435d9e9914571a951196eb603b308d93c4229f9090132894",
+    "plotting.py": "c5aa6d51be04b7f81935f1e51f2cd1263b99b00375835f390dd65cffcc3f141c"
+  },
+  "reference_sha256": {
+    "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",
+    "kobe_daily_forecasts.csv": "84e74166df7df5c6143984650aedcf327e2b9d8680ef104edc1194faa7fa5547",
+    "kobe_reference_rows.csv": "2e639c0df052e623d2a961645050edb30ba92333a49f508f11a4a138b7103bf1"
+  },
+  "sources": {
+    "berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
+    "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",
+    "information_manipulation": "https://doi.org/10.1088/1742-6596/2867/1/012047"
+  }
+}

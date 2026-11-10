@@ -4,7 +4,7 @@ import json
 
 from cli import create_parser, parse_args
 from result_output import REFERENCE_DIR, create_config, print_summary, save_results
-from simulation import (DURATION_HOURS, EARLY_START_LIMIT, NUM_BERTHS, POLICIES,
+from simulation import (DURATION_HOURS, NUM_BERTHS, POLICIES,
                         SHIFT_HOURS, run_experiment)
 
 
@@ -23,7 +23,6 @@ def main():
             policies=POLICIES,
             duration_hours=DURATION_HOURS,
             mean_interarrival_time=interval,
-            early_start_limit=EARLY_START_LIMIT,
             full_study=args.study,
         )
     except (OSError, ValueError) as error:
