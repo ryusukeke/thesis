@@ -16,11 +16,6 @@ POLICY_NAMES = {
 # 表示設定。C0、C1、…はMatplotlib標準の色で、方式と色の対応を全図で揃える。
 COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
 SCHEDULE_COLORS = {"target": "C3", "other": "C0", "arrival": "0.35"}
-FIGURE_SIZES = {  # 幅・高さ（インチ）
-    "comparison": (11.5, 4.5),
-    "schedule": (12, 8),
-}
-SHIP_LABEL_SIZE = 7
 PLOT_STYLE = {
     "figure.titlesize": 11,
     "axes.titlesize": 10,
@@ -97,7 +92,7 @@ def plot_comparisons(summary, output, full_study):
 
 def plot_waiting_comparison(data, output, filename, *, x_column, xlabel, subtitle):
     """条件別の平均と、上側だけ標本標準偏差1個分のひげを描く。"""
-    fig, axes = plt.subplots(1, 2, figsize=FIGURE_SIZES["comparison"], sharey=True)
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.5), sharey=True)
     if x_column == "target_position":
         positions = ["early", "middle", "late"]
         xvalues = range(len(positions))
@@ -157,7 +152,7 @@ def draw_ship_schedule(axis, schedule, target, start, end):
         label_start = max(start, row.start_time)
         visible_duration = min(end, row.completion_time) - label_start
         if visible_duration > 1:
-            axis.text(label_start + 0.1, berth, row.ship, va="center", fontsize=SHIP_LABEL_SIZE, clip_on=True)
+            axis.text(label_start + 0.1, berth, row.ship, va="center", fontsize=7, clip_on=True)
 
 
 def plot_schedule_example(results, output):
@@ -166,7 +161,7 @@ def plot_schedule_example(results, output):
     target = example.target_ship
     target_arrival = attacked.loc[attacked.ship == target, "actual_arrival_time"].iloc[0]
     start, end = max(0, target_arrival - 8), target_arrival + 24
-    fig, axes = plt.subplots(len(POLICIES) + 1, 1, figsize=FIGURE_SIZES["schedule"], sharex=True)
+    fig, axes = plt.subplots(len(POLICIES) + 1, 1, figsize=(12, 8), sharex=True)
     tables = [normal] + [attacked[attacked.policy == policy] for policy in POLICIES]
     for axis, table in zip(axes, tables):
         draw_ship_schedule(axis, table, target, start, end)

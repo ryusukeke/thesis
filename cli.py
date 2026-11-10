@@ -10,9 +10,9 @@ def create_parser():
         description="4バースの到着情報改ざん実験を実行し、設定・CSV・論文用グラフを保存する。"
     )
     parser.add_argument("--study", action="store_true", help="神戸港の予定規模を参照した3方式の主実験を実行")
-    parser.add_argument("--trials", type=int, default=10)
+    parser.add_argument("--trials", type=int, default=100)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", type=Path, default=Path("results/final_20261111"))
+    parser.add_argument("--output", type=Path, default=Path("results"))
     parser.add_argument("--no-plot", action="store_true")
     parser.add_argument("--no-save", action="store_true")
     return parser
@@ -21,6 +21,7 @@ def create_parser():
 def parse_args(parser):
     """定義した引数を読み、保存先を確認する。"""
     args = parser.parse_args()
-    if not args.no_save and args.output.exists() and any(args.output.iterdir()):
+    # 過去結果のサブフォルダは許可し、直下にファイルがあれば上書きを防ぐ。
+    if not args.no_save and args.output.exists() and any(path.is_file() for path in args.output.iterdir()):
         parser.error("保存先にファイルがあります。既存結果を残すため、別の--outputを指定してください。")
     return args

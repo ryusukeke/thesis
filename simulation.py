@@ -4,16 +4,10 @@ import numpy as np
 import pandas as pd
 
 
-# main.pyで使う実験条件。コマンド引数からは変更しない。
+# main.pyで使う固定条件。コマンド引数からは変更しない。
 NUM_BERTHS = 4
 DURATION_HOURS = 168.0
 SHIFT_HOURS = 4.0  # 通常実行の申告変更幅（早い・遅いの両方向）
-STUDY_SHIFT_HOURS = (2.0, 4.0, 8.0)  # 主実験で比較する変更幅
-
-# 時間の単位はすべて「時間」。実測値への当てはめではなく予備実験の仮定。
-MEAN_INTERARRIVAL_TIME = 3.0
-HANDLING_SHAPE = 2  # shape が整数のガンマ分布は Erlang 分布
-HANDLING_SCALE = 2.4  # 基準荷役時間の平均は 2 × 2.4 = 4.8 時間
 POLICIES = ("fixed", "same_berth", "reassign")
 METRICS = (
     "total_waiting_time",
@@ -31,7 +25,7 @@ METRICS = (
 
 
 def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
-                       mean_interarrival_time=MEAN_INTERARRIVAL_TIME, duration_hours=None):
+                       mean_interarrival_time=3.0, duration_hours=None):
     """到着候補、基準荷役時間、荷物の最寄りバースを乱数で作る。
 
     荷役係数は1 + 0.1 × 最寄りバースからの番号の差。速度や実距離は扱わない。
@@ -55,7 +49,8 @@ def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
     ship_rng = np.random.default_rng(seed + 100000)
     base_times, cargo_berths = [], []
     for _ in range(num_ships):
-        base_times.append(ship_rng.gamma(HANDLING_SHAPE, HANDLING_SCALE))
+        # 時間単位。shape=2、scale=2.4、平均4.8時間という仮定。
+        base_times.append(ship_rng.gamma(2, 2.4))
         cargo_berths.append(ship_rng.integers(1, num_berths + 1))
     data = pd.DataFrame({
         "ship": [f"V{i + 1}" for i in range(num_ships)],
@@ -421,9 +416,9 @@ def run_comparison_cases(data, normal_plan, shared, targets, widths, policies):
     return plans, schedules, metrics
 
 
-def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
+def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
                    target_ship="V5", shift_hours=SHIFT_HOURS, policies=POLICIES,
-                   duration_hours=DURATION_HOURS, mean_interarrival_time=MEAN_INTERARRIVAL_TIME,
+                   duration_hours=DURATION_HOURS, mean_interarrival_time=3.0,
                    full_study=False):
     """条件確認 → 正常計画 → 条件別比較 → 集計の順に実験する。保存・表示は行わない。
 
@@ -468,7 +463,7 @@ def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
             diagnosis = calculate_plan_diagnostics(data, normal_plan, mean_interval, duration_hours)
             diagnostics.append({**shared, **diagnosis})
             targets = select_targets(data, full_study, target_ship)
-            widths = STUDY_SHIFT_HOURS if full_study else (shift_hours,)
+            widths = (2.0, 4.0, 8.0) if full_study else (shift_hours,)
             case_plans, case_schedules, case_metrics = run_comparison_cases(
                 data, normal_plan, shared, targets, widths, policies,
             )

@@ -1,14 +1,18 @@
 """手計算、情報の分離、物理制約、対応比較、保存済み参照値の整合を確認する。"""
 
 import json
+from contextlib import redirect_stderr
+import inspect
+import io
 from pathlib import Path
+from unittest.mock import patch
 import tempfile
 import unittest
 
 import numpy as np
 import pandas as pd
 
-from cli import create_parser
+from cli import create_parser, parse_args
 from result_output import REFERENCE_DIR, create_config, save_results
 from simulation import (POLICIES, apply_attack, create_normal_plan, create_plan,
                         execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
@@ -23,6 +27,23 @@ def small_data(arrivals, handling):
 
 
 class SimulationTests(unittest.TestCase):
+    def test_default_trials_and_output_preserve_existing_result_files(self):
+        args = create_parser().parse_args([])
+        self.assertEqual(args.trials, 100)
+        self.assertEqual(inspect.signature(run_experiment).parameters['trials'].default, 100)
+        self.assertEqual(args.output, Path('results'))
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / 'archive').mkdir()
+            arguments = ['main.py', '--output', str(output)]
+            with patch('sys.argv', arguments):
+                self.assertEqual(parse_args(create_parser()).output, output)
+            saved = output / 'config.json'
+            saved.write_text('existing result')
+            with patch('sys.argv', arguments), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+                parse_args(create_parser())
+            self.assertEqual(saved.read_text(), 'existing result')
+
     def test_coordinated_normal_plan_matches_hand_calculation_and_preserves_input(self):
         raw = small_data([0, 2, 3], [3, 3, 3])
         saved = raw.copy(deep=True)

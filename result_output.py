@@ -7,9 +7,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from simulation import (DURATION_HOURS, HANDLING_SCALE,
-                        HANDLING_SHAPE, NUM_BERTHS, POLICIES, SHIFT_HOURS,
-                        STUDY_SHIFT_HOURS)
+from simulation import DURATION_HOURS, NUM_BERTHS, POLICIES, SHIFT_HOURS
 
 ROOT = Path(__file__).resolve().parent
 REFERENCE_DIR = ROOT / "data/kobe_reference_20261105"
@@ -44,13 +42,13 @@ def create_config(args, results, interval):
         "interval_source": "kobe_day_ahead_forecasts",
         "demand_multipliers": [0.75, 1.0, 1.5] if args.study else [1.0],
         "target_positions": [0.1, 0.5, 0.9] if args.study else ["V5"],
-        "shift_magnitudes_hours": list(STUDY_SHIFT_HOURS) if args.study else [SHIFT_HOURS],
+        "shift_magnitudes_hours": [2.0, 4.0, 8.0] if args.study else [SHIFT_HOURS],
         "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
         "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
         "policies": list(POLICIES),
         # 計算モデルの前提
-        "handling_shape": HANDLING_SHAPE,
-        "handling_scale": HANDLING_SCALE,
+        "handling_shape": 2,
+        "handling_scale": 2.4,
         "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
         "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
         "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
