@@ -29,3 +29,5 @@ audit_dir=$(mktemp -d /tmp/thesis-audit-20261105.XXXXXX)
 git archive 9cd41aa simulation.py main.py port_collection/analyze_port_data.py results/final_20261105 | tar -x -C "$audit_dir"
 .venv/bin/python "$audit_dir/results/final_20261105/audit_results.py"
 ```
+
+船の多さを変えた複数船版の100試行は[旧レポート](予備比較レポート_20261111_複数船100試行.md)と[結果一式](../../results/archive/20261111_複数船_3需要_100試行/)に保管した。最新は倍率比較なし・既定1試行・Excel保存であり、旧条件の平均や悪化件数と混同しない。

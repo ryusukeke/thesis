@@ -236,11 +236,11 @@ def calculate_metrics(schedule, target_ships, normal=None):
 
 def summarize_results(run_metrics):
     """同じ入力・ルールの正常値との差を集計する。幅が違っても正常計画は共有する。"""
-    normal_keys = ["demand_multiplier", "trial", "attack_scale", "policy"]
+    normal_keys = ["trial", "attack_scale", "policy"]
     normal = run_metrics[run_metrics["scenario"] == "normal"].set_index(normal_keys)
     attacks = run_metrics[run_metrics["scenario"] != "normal"].copy()
     joined = attacks.join(normal[list(METRICS)], on=normal_keys, rsuffix="_normal")
-    cells = ["experiment_group", "demand_multiplier", "attack_scale", "shift_hours", "scenario", "policy"]
+    cells = ["experiment_group", "attack_scale", "shift_hours", "scenario", "policy"]
     summaries = []
     for key, rows in joined.groupby(cells, sort=False):
         labels = dict(zip(cells, key))
@@ -380,7 +380,7 @@ def select_example_schedules(schedules, metrics, full_study, width, policy):
     """事前指定セルで正常からの平均待ちの増分が最大の試行だけを図用に保持する。"""
     scale, scenario = ("p30", "mixed") if full_study else ("single", "early")
     rows = pd.DataFrame(metrics)
-    selected = rows[(rows.demand_multiplier == 1) & (rows.attack_scale == scale)
+    selected = rows[(rows.attack_scale == scale)
                     & (rows.shift_hours == width) & (rows.scenario == scenario) & (rows.policy == policy)]
     if selected.empty:
         return -np.inf, []
@@ -392,7 +392,7 @@ def select_example_schedules(schedules, metrics, full_study, width, policy):
     return increase, frames
 
 
-def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
+def run_experiment(trials=1, num_ships=10, num_berths=NUM_BERTHS, seed=42,
                    target_ship="V5", shift_hours=SHIFT_HOURS, policies=POLICIES,
                    duration_hours=DURATION_HOURS, mean_interarrival_time=3.0,
                    full_study=False, keep_schedules=False):
@@ -418,40 +418,37 @@ def run_experiment(trials=100, num_ships=10, num_berths=NUM_BERTHS, seed=42,
     metrics = []
     diagnostics = []
     best_increase = -np.inf
-    levels = (0.75, 1.0, 1.5) if full_study else (1.0,)
-    for demand in levels:
-        for trial in range(1, trials + 1):
-            trial_seed = seed + trial - 1
-            mean_interval = mean_interarrival_time / demand
-            data = generate_ship_data(
-                num_ships=num_ships,
-                num_berths=num_berths,
-                seed=trial_seed,
-                mean_interarrival_time=mean_interval,
-                duration_hours=duration_hours,
+    for trial in range(1, trials + 1):
+        trial_seed = seed + trial - 1
+        data = generate_ship_data(
+            num_ships=num_ships,
+            num_berths=num_berths,
+            seed=trial_seed,
+            mean_interarrival_time=mean_interarrival_time,
+            duration_hours=duration_hours,
+        )
+        if len(data) < 2 or (not full_study and target_ship not in data["ship"].values):
+            raise ValueError(f"seed={trial_seed}：比較対象を含む船を生成できません。期間・間隔・隻数を見直してください。")
+        normal_plan = create_plan(data)
+        shared = {"trial": trial, "seed": trial_seed,
+                  "selection_seed": trial_seed + 200000 if full_study else np.nan}
+        inputs.append(data.assign(**shared))
+        diagnosis = calculate_plan_diagnostics(data, normal_plan, duration_hours)
+        diagnostics.append({**shared, **diagnosis})
+        targets, directions = select_targets(data, full_study, target_ship, trial_seed)
+        widths = (2.0, 4.0, 8.0) if full_study else (shift_hours,)
+        case_schedules, case_metrics = run_comparison_cases(
+            data, normal_plan, shared, targets, directions, widths, policies,
+        )
+        if keep_schedules:
+            schedules.extend(case_schedules)
+        else:
+            increase, example = select_example_schedules(
+                case_schedules, case_metrics, full_study, 4.0 if full_study else shift_hours, policies[0],
             )
-            if len(data) < 2 or (not full_study and target_ship not in data["ship"].values):
-                raise ValueError(f"seed={trial_seed}：比較対象を含む船を生成できません。期間・間隔・隻数を見直してください。")
-            normal_plan = create_plan(data)
-            shared = {"demand_multiplier": demand, "trial": trial, "seed": trial_seed,
-                      "selection_seed": trial_seed + 200000 if full_study else np.nan}
-            inputs.append(data.assign(**shared))
-            diagnosis = calculate_plan_diagnostics(data, normal_plan, duration_hours)
-            diagnostics.append({**shared, **diagnosis})
-            targets, directions = select_targets(data, full_study, target_ship, trial_seed)
-            widths = (2.0, 4.0, 8.0) if full_study else (shift_hours,)
-            case_schedules, case_metrics = run_comparison_cases(
-                data, normal_plan, shared, targets, directions, widths, policies,
-            )
-            if keep_schedules:
-                schedules.extend(case_schedules)
-            else:
-                increase, example = select_example_schedules(
-                    case_schedules, case_metrics, full_study, 4.0 if full_study else shift_hours, policies[0],
-                )
-                if increase > best_increase:
-                    best_increase, schedules = increase, example
-            metrics.extend(case_metrics)
+            if increase > best_increase:
+                best_increase, schedules = increase, example
+        metrics.extend(case_metrics)
     run_metrics = pd.DataFrame(metrics)
     summary = summarize_results(run_metrics)
     return {

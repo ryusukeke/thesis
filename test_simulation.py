@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from cli import create_parser, parse_args
-from result_output import REFERENCE_DIR, create_config, save_results
+from result_output import EXCEL_COLUMNS, EXCEL_VALUES, REFERENCE_DIR, create_config, excel_number_format, save_results
 from simulation import (POLICIES, apply_attack, create_plan,
                         calculate_metrics, execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
                         run_experiment, select_targets)
@@ -29,8 +29,8 @@ def small_data(arrivals, handling):
 class SimulationTests(unittest.TestCase):
     def test_default_trials_and_output_preserve_existing_result_files(self):
         args = create_parser().parse_args([])
-        self.assertEqual(args.trials, 100)
-        self.assertEqual(inspect.signature(run_experiment).parameters['trials'].default, 100)
+        self.assertEqual(args.trials, 1)
+        self.assertEqual(inspect.signature(run_experiment).parameters['trials'].default, 1)
         self.assertEqual(args.output, Path('results'))
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
@@ -155,9 +155,9 @@ class SimulationTests(unittest.TestCase):
 
     def test_all_cases_preserve_physics_inputs_and_paired_metrics(self):
         results = run_experiment(trials=2, duration_hours=None, num_ships=25, mean_interarrival_time=0.3, keep_schedules=True)
-        data = results['ship_data'].set_index(['demand_multiplier', 'trial', 'ship'])
+        data = results['ship_data'].set_index(['trial', 'ship'])
         schedules = results['schedules']
-        keys = ['experiment_group', 'demand_multiplier', 'trial', 'attack_scale', 'shift_hours', 'scenario', 'policy']
+        keys = ['experiment_group', 'trial', 'attack_scale', 'shift_hours', 'scenario', 'policy']
         for _, case in schedules.groupby(keys):
             self.assertEqual(case.ship.nunique(), 25)
             self.assertTrue((case.start_time >= case.actual_arrival_time).all())
@@ -167,22 +167,21 @@ class SimulationTests(unittest.TestCase):
             for berth, rows in case.groupby('assigned_berth'):
                 rows = rows.sort_values('start_time')
                 self.assertTrue((rows.start_time.to_numpy()[1:] >= rows.completion_time.to_numpy()[:-1]).all())
-                expected = [data.loc[(r.demand_multiplier, r.trial, r.ship), f'handling_time_{berth}'] for r in rows.itertuples()]
+                expected = [data.loc[(r.trial, r.ship), f'handling_time_{berth}'] for r in rows.itertuples()]
                 np.testing.assert_allclose(rows.handling_time, expected)
             for row in case.itertuples():
-                self.assertEqual(row.actual_arrival_time, data.loc[(row.demand_multiplier, row.trial, row.ship), 'actual_arrival_time'])
+                self.assertEqual(row.actual_arrival_time, data.loc[(row.trial, row.ship), 'actual_arrival_time'])
         normal = schedules[schedules.scenario == 'normal']
         self.assertTrue((normal.waiting_time >= 0).all())
         self.assertTrue((normal.waiting_time > 0).any())
         compare = results['summary']
         for row in compare.itertuples():
             runs = results['run_metrics']
-            selected = runs[(runs.experiment_group == row.experiment_group) & (runs.demand_multiplier == row.demand_multiplier)
+            selected = runs[(runs.experiment_group == row.experiment_group)
                             & (runs.attack_scale == row.attack_scale) & (runs.shift_hours == row.shift_hours)
                             & (runs.scenario == row.scenario) & (runs.policy == row.policy)]
             self.assertAlmostEqual(row.mean, selected[row.metric].mean())
-            baseline = runs[(runs.demand_multiplier == row.demand_multiplier)
-                            & (runs.attack_scale == row.attack_scale)
+            baseline = runs[(runs.attack_scale == row.attack_scale)
                             & (runs.scenario == 'normal') & (runs.policy == row.policy)].set_index('trial')
             differences = selected.set_index('trial')[row.metric] - baseline[row.metric]
             self.assertAlmostEqual(row.normal_mean, baseline[row.metric].mean())
@@ -201,16 +200,21 @@ class SimulationTests(unittest.TestCase):
     def test_full_study_counts_targets_and_three_policies_share_inputs(self):
         result = run_experiment(trials=1, full_study=True, keep_schedules=True)
         runs = result['run_metrics']
-        self.assertEqual(len(result['plan_diagnostics']), 3)
+        self.assertEqual(len(result['plan_diagnostics']), 1)
         self.assertEqual(POLICIES, ('fixed', 'same_berth', 'reassign'))
-        self.assertEqual(len(runs.query("scenario!='normal'")), 297)
-        self.assertEqual(len(runs.query("experiment_group=='main'")), 216)
-        self.assertEqual(len(runs.query("experiment_group=='mixed_supplement'")), 81)
-        self.assertEqual(len(runs.query("scenario=='normal'")), 36)
+        self.assertEqual(len(runs.query("scenario!='normal'")), 99)
+        self.assertEqual(len(runs.query("experiment_group=='main'")), 72)
+        self.assertEqual(len(runs.query("experiment_group=='mixed_supplement'")), 27)
+        self.assertEqual(len(runs.query("scenario=='normal'")), 12)
+        self.assertEqual(runs.seed.unique().tolist(), [42])
+        self.assertNotIn('demand_multiplier', runs)
+        self.assertNotIn('target_position', runs)
+        self.assertTrue((result['summary'].trials == 1).all())
+        self.assertTrue(result['summary'].std_difference.isna().all())
         self.assertTrue(runs.query("attack_scale=='single' and scenario=='mixed'").empty)
         schedules = result['schedules']
         self.assertTrue((schedules.start_time >= schedules.actual_arrival_time).all())
-        keys = ['demand_multiplier','attack_scale','shift_hours','scenario','policy']
+        keys = ['attack_scale','shift_hours','scenario','policy']
         for _, case in schedules.groupby(keys):
             self.assertEqual(case.ship.nunique(), len(case))
             for _, rows in case.groupby('assigned_berth'):
@@ -222,7 +226,7 @@ class SimulationTests(unittest.TestCase):
                 reported = case.set_index('ship').reported_arrival_time
                 for ship in case.ship:
                     self.assertAlmostEqual(reported[ship]-actual[ship], changes.get(ship,0))
-        for _, rows in runs.query("scenario!='normal'").groupby(['demand_multiplier','attack_scale','shift_hours','scenario']):
+        for _, rows in runs.query("scenario!='normal'").groupby(['attack_scale','shift_hours','scenario']):
             self.assertEqual(rows.target_ships.nunique(),1)
             self.assertEqual(rows.report_shifts.nunique(),1)
             self.assertEqual(rows.target_count.nunique(),1)
@@ -282,7 +286,7 @@ class SimulationTests(unittest.TestCase):
             pd.testing.assert_frame_equal(compact[name],full[name])
         sample=compact['schedules']
         self.assertEqual(sample.trial.nunique(),1)
-        self.assertEqual(sample.demand_multiplier.unique().tolist(),[1.0])
+        self.assertNotIn('demand_multiplier', sample)
         attacked=sample.query("scenario!='normal'")
         self.assertEqual(set(attacked.attack_scale),{'p30'})
         self.assertEqual(set(attacked.scenario),{'mixed'})
@@ -321,7 +325,7 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(row.scheduled_ship_days, int((counted.snapshot_date == row.snapshot_date).sum()))
         self.assertEqual(reference['mean_candidate_interval_hours'], 24 * len(daily) / len(counted))
 
-    def test_saved_output_contains_only_conditions_run_metrics_and_summary(self):
+    def test_saved_output_contains_three_japanese_sheets_and_preserves_values(self):
         args = create_parser().parse_args(['--trials', '1', '--no-plot'])
         results = run_experiment(trials=1)
         config = create_config(args, results, 3.0)
@@ -329,18 +333,63 @@ class SimulationTests(unittest.TestCase):
             output = Path(directory)
             save_results(results, config, output)
             self.assertEqual({path.name for path in output.iterdir()},
-                             {'config.json', 'run_metrics.csv', 'summary.csv'})
-            for name in ('run_metrics', 'summary'):
-                saved = pd.read_csv(output / f'{name}.csv')
+                             {'config.json', 'results.xlsx'})
+            with pd.ExcelFile(output / 'results.xlsx') as workbook_file:
+                self.assertEqual(workbook_file.sheet_names, ['条件別集計', '試行別結果', '船別データ'])
+            from openpyxl import load_workbook
+            workbook = load_workbook(output / 'results.xlsx')
+            for sheet in workbook:
+                self.assertEqual(sheet.freeze_panes, 'B2')
+                self.assertEqual(sheet.auto_filter.ref, sheet.dimensions)
+                self.assertFalse(sheet.sheet_view.showGridLines)
+                headers = {cell.value: cell.column for cell in sheet[1]}
+                for label in ['申告変更幅（時間）', '試行数', '試行番号', '改ざん対象隻数', '全船数（隻）']:
+                    if label in headers:
+                        self.assertTrue(all(cell[0].number_format == '0' for cell in
+                                            sheet.iter_rows(min_row=2, min_col=headers[label], max_col=headers[label])))
+            ships_sheet = workbook['船別データ']
+            self.assertEqual(ships_sheet['B3'].number_format, '0.#')
+            for value, expected in [(2, '0'), (1.1, '0.##'), (161.609, '0'),
+                                    (0.0000227928, '0.#######'), (99.999, '0'),
+                                    (-0.0012345, '0.#####'), (1e-15, '0')]:
+                self.assertEqual(excel_number_format(value), expected)
+            self.assertEqual(excel_number_format(1 / 63, percentage=True), '0.##%')
+            workbook.close()
+            saved_ships = pd.read_excel(output / 'results.xlsx', sheet_name='船別データ')
+            self.assertEqual(saved_ships['船ID'].nunique(), len(results['ship_data']))
+            self.assertIn('実到着時刻（時間）', saved_ships)
+            self.assertIn('正常時の申告到着時刻（時間）', saved_ships)
+            for berth in range(1, 5):
+                self.assertIn(f'B{berth}の荷役時間（時間）', saved_ships)
+            restored = saved_ships.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
+            pd.testing.assert_frame_equal(restored, results['ship_data'], check_dtype=False)
+            for name, sheet_name in [('run_metrics', '試行別結果'), ('summary', '条件別集計')]:
+                saved = pd.read_excel(output / 'results.xlsx', sheet_name=sheet_name)
+                self.assertIn('運用方式', saved)
+                self.assertEqual(set(saved['運用方式']), {'固定', '同じバース内調整', 'バース変更'})
+                self.assertIn('早い申告', saved['申告条件'].values)
+                self.assertIn('遅い申告', saved['申告条件'].values)
+                if name == 'summary':
+                    self.assertIn('全船の平均待ち時間（時間）', saved['評価指標'].values)
+                else:
+                    self.assertEqual(saved['改ざん対象船ID'].iloc[0], '["V5"]')
+                    self.assertTrue(pd.api.types.is_numeric_dtype(saved['申告変更幅（時間）']))
+                saved = saved.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
+                for column, labels in EXCEL_VALUES.items():
+                    if column in saved:
+                        saved[column] = saved[column].replace({label: key for key, label in labels.items()})
                 pd.testing.assert_frame_equal(saved, results[name], check_dtype=False)
             saved_config = json.loads((output / 'config.json').read_text())
             self.assertEqual(saved_config['first_seed'], 42)
             self.assertEqual(saved_config['policies'], ['fixed', 'same_berth', 'reassign'])
             self.assertIn('normal_plan_diagnostics', saved_config)
-            self.assertEqual(saved_config['model_version'], 'discrete_4berth_multi_ship_v5')
+            self.assertEqual(saved_config['model_version'], 'discrete_4berth_multi_ship_v6')
             self.assertEqual(len(saved_config['normal_waiting_summary']), 3)
             self.assertNotIn('max_arrival_adjustment_hours', saved_config['normal_plan_diagnostics'])
             self.assertIn('mean_difference', results['summary'])
+            self.assertNotIn('demand_multipliers', saved_config)
+            self.assertNotIn('demand_multiplier', results['run_metrics'])
+            self.assertNotIn('target_position', results['run_metrics'])
 
 
 if __name__ == '__main__':

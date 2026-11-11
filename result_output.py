@@ -1,4 +1,4 @@
-"""実験条件の記録、計算結果のCSV・JSON保存、画面への概要表示を担当する。"""
+"""実験条件の記録、計算結果のExcel・JSON保存、画面への概要表示を担当する。"""
 
 import hashlib
 import json
@@ -6,6 +6,9 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from openpyxl import __version__ as openpyxl_version
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from simulation import DURATION_HOURS, NUM_BERTHS, POLICIES, SHIFT_HOURS
 
@@ -13,6 +16,53 @@ ROOT = Path(__file__).resolve().parent
 REFERENCE_DIR = ROOT / "data/kobe_reference_20261105"
 REFERENCE_FILES = ("kobe_reference.json", "kobe_daily_forecasts.csv", "kobe_reference_rows.csv")
 CODE_FILES = ("simulation.py", "main.py", "cli.py", "result_output.py", "plotting.py")
+EXCEL_SHEETS = {"summary": "条件別集計", "run_metrics": "試行別結果", "ship_data": "船別データ"}
+METRIC_LABELS = {
+    "total_waiting_time": "全船の総待ち時間（時間）",
+    "average_waiting_time": "全船の平均待ち時間（時間）",
+    "max_waiting_time": "全船の最大待ち時間（時間）",
+    "total_turnaround_time": "全船の総在港時間（時間）",
+    "average_turnaround_time": "全船の平均在港時間（時間）",
+    "completion_time": "最終荷役完了時刻（開始からの時間）",
+    "target_average_waiting_time": "対象船群の平均待ち時間（時間）",
+    "other_average_waiting_time": "対象外船群の平均待ち時間（時間）",
+    "other_waiting_ships": "待ちが発生した対象外船数（隻）",
+    "other_max_waiting_time": "対象外船群の最大待ち時間（時間）",
+    "berth_changes": "計画からバースを変更した船数（隻）",
+    "increased_waiting_ships": "正常時より待ちが増えた全船数（隻）",
+    "other_increased_waiting_ships": "正常時より待ちが増えた対象外船数（隻）",
+}
+EXCEL_COLUMNS = {
+    "experiment_group": "実験区分", "attack_scale": "改ざん対象の規模",
+    "shift_hours": "申告変更幅（時間）", "scenario": "申告条件", "policy": "運用方式",
+    "metric": "評価指標", "trials": "試行数",
+    "mean": "改ざん時の指標値（試行平均）", "std": "改ざん時の標準偏差",
+    "normal_mean": "正常時の指標値（試行平均）",
+    "mean_difference": "正常時との差（試行平均）",
+    "std_difference": "正常時との差の標準偏差",
+    "min_difference": "正常時との差の最小値", "max_difference": "正常時との差の最大値",
+    "increased_trials": "正常時より増加した試行数",
+    "decreased_trials": "正常時より減少した試行数",
+    "unchanged_trials": "正常時と同じ試行数",
+    "mean_mitigation_vs_fixed": "固定方式に対する軽減量（試行平均）",
+    "trial": "試行番号", "seed": "乱数シード", "selection_seed": "対象選択用シード",
+    "target_count": "改ざん対象隻数", "actual_attack_fraction": "実際の改ざん対象割合",
+    "target_ships": "改ざん対象船ID", "report_shifts": "各対象船の申告変更量（時間）",
+    "num_ships": "全船数（隻）", **METRIC_LABELS,
+    "ship": "船ID", "actual_arrival_time": "実到着時刻（時間）",
+    "reported_arrival_time": "正常時の申告到着時刻（時間）",
+    "base_handling_time": "基準荷役時間（時間）",
+    "cargo_nearest_berth": "荷物の最寄りバース番号",
+    **{f"berth_factor_B{berth}": f"B{berth}の荷役係数" for berth in range(1, NUM_BERTHS + 1)},
+    **{f"handling_time_B{berth}": f"B{berth}の荷役時間（時間）" for berth in range(1, NUM_BERTHS + 1)},
+}
+EXCEL_VALUES = {
+    "experiment_group": {"baseline": "正常比較用", "main": "主実験", "mixed_supplement": "混在の補足"},
+    "attack_scale": {"single": "1隻", "p10": "全船の10%", "p30": "全船の30%", "p50": "全船の50%"},
+    "scenario": {"normal": "正常", "early": "早い申告", "late": "遅い申告", "mixed": "早い・遅い申告の混在"},
+    "policy": {"fixed": "固定", "same_berth": "同じバース内調整", "reassign": "バース変更"},
+    "metric": METRIC_LABELS,
+}
 
 
 def calculate_file_hashes(directory, filenames):
@@ -28,9 +78,9 @@ def create_config(args, results, interval):
     """実行した条件と、再現に必要なコード・ライブラリの情報をまとめる。"""
     attacks = results["run_metrics"]
     normal = attacks[attacks.scenario == "normal"].drop_duplicates(
-        ["demand_multiplier", "trial", "policy"]
+        ["trial", "policy"]
     )
-    normal_waiting = normal.groupby(["demand_multiplier", "policy"], as_index=False).agg(
+    normal_waiting = normal.groupby(["policy"], as_index=False).agg(
         trials=("trial", "count"),
         mean_waiting_hours=("average_waiting_time", "mean"),
         max_waiting_hours=("max_waiting_time", "max"),
@@ -38,7 +88,7 @@ def create_config(args, results, interval):
     attacks = attacks[attacks.scenario != "normal"]
     return {
         # 実験の対象条件
-        "model_version": "discrete_4berth_multi_ship_v5",
+        "model_version": "discrete_4berth_multi_ship_v6",
         "full_study": args.study,
         "trials_per_cell": args.trials,
         "first_seed": args.seed,
@@ -48,7 +98,6 @@ def create_config(args, results, interval):
         "arrival_duration_hours": DURATION_HOURS,
         "base_mean_interarrival_hours": interval,
         "interval_source": "kobe_day_ahead_forecasts",
-        "demand_multipliers": [0.75, 1.0, 1.5] if args.study else [1.0],
         "attack_scales": ["single", "p10", "p30", "p50"] if args.study else ["single"],
         "target_selection": "permutation_prefix; fractions_ceil" if args.study else "specified_V5",
         "selection_rng_seed": "trial_seed+200000; permutation then first mixed sign",
@@ -76,11 +125,9 @@ def create_config(args, results, interval):
         "mixed_attack_executions": int((attacks.experiment_group == "mixed_supplement").sum()),
         "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
         "normal_waiting_summary": normal_waiting.to_dict("records"),
-        "normal_occupancy_by_demand": results["plan_diagnostics"].groupby(
-            "demand_multiplier"
-        )["normal_occupancy"].mean().to_dict(),
+        "normal_occupancy": results["plan_diagnostics"]["normal_occupancy"].mean(),
         "schedule_storage": "one illustrative trial; maximum fixed mean-wait increase in predefined cell",
-        "example_cell": "demand_1_p30_mixed_4h" if args.study else "demand_1_single_early_4h",
+        "example_cell": "p30_mixed_4h" if args.study else "single_early_4h",
         "normal_plan_diagnostics": {
             "last_actual_arrival_hours": results["plan_diagnostics"]["last_actual_arrival"].max(),
             "last_planned_completion_hours": results["plan_diagnostics"]["last_planned_completion"].max(),
@@ -88,6 +135,8 @@ def create_config(args, results, interval):
         # 再現確認に必要な版・ファイル・資料
         "numpy_version": np.__version__,
         "pandas_version": pd.__version__,
+        "openpyxl_version": openpyxl_version,
+        "result_format": "results.xlsx; 条件別集計・試行別結果・船別データ; 計算済みの値を日本語で表示",
         "code_sha256": calculate_file_hashes(ROOT, CODE_FILES),
         "reference_sha256": calculate_file_hashes(REFERENCE_DIR, REFERENCE_FILES),
         "sources": {
@@ -98,16 +147,82 @@ def create_config(args, results, interval):
     }
 
 
+def save_excel(results, path):
+    """集計・試行別指標・改ざん前の船別入力を日本語の1冊へ保存する。"""
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        for name in EXCEL_SHEETS:
+            table = results[name]
+            display = translate_excel_table(table)
+            sheet_name = EXCEL_SHEETS[name]
+            display.to_excel(writer, sheet_name=sheet_name, index=False)
+            sheet = writer.sheets[sheet_name]
+            format_result_sheet(sheet, table)
+
+
+def translate_excel_table(table):
+    """計算に使う英語の識別子は保ち、Excelへ渡す表だけ日本語にする。"""
+    display = table.copy(deep=True)
+    for column, labels in EXCEL_VALUES.items():
+        if column in display:
+            display[column] = display[column].replace(labels)
+    return display.rename(columns=EXCEL_COLUMNS)
+
+
+def excel_number_format(value, percentage=False):
+    """値は変えず、小数を有効数字3桁以内で表示する書式を返す。"""
+    display_value = float(value) * (100 if percentage else 1)
+    suffix = "%" if percentage else ""
+    # 計算誤差程度の残差は、これまでと同じく0と表示する。
+    if display_value.is_integer() or abs(display_value) < 1e-12:
+        return "0" + suffix
+    rounded = float(f"{display_value:.3g}")
+    if abs(rounded) >= 1000:
+        return "0.##E+00" + suffix
+    decimal_places = max(0, 2 - int(np.floor(np.log10(abs(rounded)))))
+    decimals = "." + "#" * decimal_places if decimal_places else ""
+    return "0" + decimals + suffix
+
+
+def format_result_sheet(sheet, table):
+    """保存した表の見出し、列幅、数値表示を整える。"""
+    sheet.freeze_panes = "B2"
+    sheet.auto_filter.ref = sheet.dimensions
+    sheet.sheet_view.showGridLines = False
+    sheet.row_dimensions[1].height = 60
+    for index, column in enumerate(table.columns, 1):
+        header = sheet.cell(1, index)
+        header.fill = PatternFill("solid", fgColor="243B53")
+        header.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
+        header.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        width = 64 if column in ("target_ships", "report_shifts") else 26
+        sheet.column_dimensions[get_column_letter(index)].width = width
+        for cells in sheet.iter_rows(min_row=2, min_col=index, max_col=index):
+            cell = cells[0]
+            cell.font = Font(name="Arial", size=10)
+            cell.alignment = Alignment(vertical="center", wrap_text=True)
+            if isinstance(cell.value, (int, float)):
+                cell.number_format = excel_number_format(
+                    cell.value, percentage=column == "actual_attack_fraction"
+                )
+    for cells in sheet.iter_rows(min_row=2):
+        lines = 1
+        for cell in cells:
+            if isinstance(cell.value, str):
+                text_width = sum(2 if ord(char) > 255 else 1 for char in cell.value)
+                width = sheet.column_dimensions[cell.column_letter].width - 2
+                lines = max(lines, int(np.ceil(text_width / width)))
+        sheet.row_dimensions[cells[0].row].height = max(22, lines * 15)
+
+
 def save_results(results, config, output):
-    """試行別結果・集計の2表と実験条件を保存する。"""
+    """集計・試行別結果・船別入力の3表と実験条件を保存する。"""
     output.mkdir(parents=True, exist_ok=True)
-    for name in ("run_metrics", "summary"):
-        results[name].to_csv(output / f"{name}.csv", index=False, encoding="utf-8-sig")
+    save_excel(results, output / "results.xlsx")
     (output / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n")
 
 
 def print_summary(results, interval, output):
-    """実行件数と全主実験条件の平均を表示する。outputがNoneなら保存なし。"""
+    """実行件数と方向別に利用可能な条件の平均を表示する。outputがNoneなら保存なし。"""
     runs = results["run_metrics"]
     normal = runs[runs.scenario == "normal"]
     attacks = runs[runs.scenario != "normal"]
@@ -119,7 +234,11 @@ def print_summary(results, interval, output):
         f"正常時の最大待ち時間：{normal.max_waiting_time.max():.9f}時間。"
         f"実到着の基準平均間隔：{interval:.6f}時間。"
     )
-    print("下表は全主実験条件を同じ重みで平均した概要です。条件別の比較はsummary.csvを参照してください。")
+    print("下表は方向ごとに利用可能な条件を同じ重みでまとめた概要です。条件別の比較はresults.xlsxの「条件別集計」シートを参照してください。")
+    if (attacks.scenario == "mixed").any():
+        print("早い・遅い申告には1隻条件を含み、混在は10%・30%・50%のみです。")
+    if results["run_metrics"]["trial"].nunique() == 1:
+        print("各条件1試行の結果です。異なる乱数での平均・ばらつきは評価していません。")
     summary = results["summary"]
     all_wait = summary[summary.metric == "average_waiting_time"]
     print("全船の平均待ち時間（時間）。mean_differenceは同じ方式の正常時からの増減です。")

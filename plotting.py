@@ -1,4 +1,4 @@
-"""規模・混雑度・変更幅の比較と、待ちの負担・時刻別の待ち船数を描く。"""
+"""規模・変更幅の比較と、待ちの負担・時刻別の待ち船数を描く。"""
 
 import json
 
@@ -20,7 +20,7 @@ PLOT_STYLE = {"figure.titlesize": 11, "axes.titlesize": 10, "legend.fontsize": 8
 
 
 def plot_results(results, output, full_study):
-    """主実験は7図、単一設定は概要・待ち船数・スケジュールの3図を保存する。"""
+    """主実験は6図、単一設定は概要・待ち船数・スケジュールの3図を保存する。"""
     with plt.rc_context(PLOT_STYLE):
         if full_study:
             plot_comparisons(results["summary"], output)
@@ -46,22 +46,17 @@ def setup_change_axis(axis, title, xlabel):
 
 
 def plot_comparisons(summary, output):
-    """他条件を固定して規模・需要・幅の断面を描く。"""
+    """他条件を固定して規模・幅の断面を描く。"""
     waiting = summary[summary.metric == "average_waiting_time"]
     plot_waiting_comparison(
-        waiting[(waiting.demand_multiplier == 1) & (waiting.shift_hours == 4)],
+        waiting[(waiting.shift_hours == 4)],
         output, "01_attack_fraction", "attack_scale", "Tampered ships / all ships",
-        "Baseline demand; report shift magnitude 4 h",
+        "Report shift magnitude 4 h",
     )
     plot_waiting_comparison(
-        waiting[(waiting.attack_scale == "p30") & (waiting.shift_hours == 4)],
-        output, "02_demand", "demand_multiplier", "Arrival demand / forecast reference",
-        "30% tampered; report shift magnitude 4 h",
-    )
-    plot_waiting_comparison(
-        waiting[(waiting.attack_scale == "p30") & (waiting.demand_multiplier == 1)],
-        output, "03_attack_width", "shift_hours", "Report shift magnitude (hours)",
-        "Baseline demand; 30% tampered",
+        waiting[(waiting.attack_scale == "p30")],
+        output, "02_attack_width", "shift_hours", "Report shift magnitude (hours)",
+        "30% tampered",
     )
 
 
@@ -77,20 +72,24 @@ def plot_waiting_comparison(data, output, filename, x_column, xlabel, subtitle):
             present = rows["mean_difference"].notna().to_numpy()
             values = rows.loc[present, "mean_difference"]
             deviations = rows.loc[present, "std_difference"].fillna(0)
-            axis.errorbar(xvalues[present], values, yerr=[np.zeros(len(values)), deviations],
-                          marker="o", color=COLORS[policy], label=POLICY_NAMES[policy])
+            if rows.loc[present, "trials"].max() == 1:
+                axis.plot(xvalues[present], values, marker="o", color=COLORS[policy], label=POLICY_NAMES[policy])
+            else:
+                axis.errorbar(xvalues[present], values, yerr=[np.zeros(len(values)), deviations],
+                              marker="o", color=COLORS[policy], label=POLICY_NAMES[policy])
         setup_change_axis(axis, SCENARIO_NAMES[scenario], xlabel)
         axis.set_xticks(xvalues, ticklabels)
         axis.legend()
     axes[0].set_ylabel("All ships: change in mean waiting (hours)")
-    fig.suptitle(subtitle + "; whiskers: +1 sample SD of paired changes")
+    note = "; 1 trial per condition" if data.trials.max() == 1 else "; whiskers: +1 sample SD of paired changes"
+    fig.suptitle(subtitle + note)
     save_figure(fig, output, filename)
 
 
 def select_overview_rows(summary):
     """概要と負担先は同じ断面にそろえる。"""
     scale = "p30" if "p30" in summary.attack_scale.values else "single"
-    return summary[(summary.demand_multiplier == 1) & (summary.attack_scale == scale)
+    return summary[(summary.attack_scale == scale)
                    & (summary.shift_hours == 4)]
 
 
@@ -108,8 +107,8 @@ def plot_group_burden(summary, output):
         axis.set_xticks(range(len(POLICIES)), ["A", "B", "C"])
         axis.legend()
     axes[0].set_ylabel("Change in group mean waiting (hours)")
-    fig.suptitle("Baseline demand; 30% tampered; report shift magnitude 4 h")
-    save_figure(fig, output, "04_group_burden")
+    fig.suptitle("30% tampered; report shift magnitude 4 h")
+    save_figure(fig, output, "03_group_burden")
 
 
 def plot_waiting_overview(results, output, full_study):
@@ -130,8 +129,8 @@ def plot_waiting_overview(results, output, full_study):
     axes[0].set(title="All ships: normal and tampered", ylabel="Mean waiting time (hours)", ylim=(0, None))
     setup_change_axis(axes[1], "Tampered minus same-policy normal", "Operating policy")
     axes[1].set_ylabel("Change in mean waiting (hours)")
-    fig.suptitle("Baseline demand; " + ("30% tampered" if full_study else "V5 tampered") + "; shift magnitude 4 h")
-    save_figure(fig, output, "05_waiting_overview")
+    fig.suptitle( ("30% tampered" if full_study else "V5 tampered") + "; shift magnitude 4 h")
+    save_figure(fig, output, "04_waiting_overview")
 
 
 def queue_profile(schedule, end):
@@ -145,7 +144,7 @@ def queue_profile(schedule, end):
 def example_description(schedules):
     """保持した説明用試行の条件を見出しにする。平均的な例とは扱わない。"""
     row = schedules[schedules.scenario != "normal"].iloc[0]
-    return (f"Illustrative maximum in predefined cell: seed {int(row.seed)}, "
+    return (f"Illustrative case in predefined cell: seed {int(row.seed)}, "
             f"{SCALE_NAMES[row.attack_scale]}, {row.scenario}, shift {row.shift_hours:g} h")
 
 
@@ -165,7 +164,7 @@ def plot_queue_example(schedules, output):
         axis.legend()
     axes[-1].set(xlabel="Hours since beginning", xlim=(0, end))
     fig.suptitle(example_description(schedules))
-    save_figure(fig, output, "06_queue_example")
+    save_figure(fig, output, "05_queue_example")
 
 
 def draw_ship_schedule(axis, schedule, targets, start, end):
@@ -199,4 +198,4 @@ def plot_schedule_example(schedules, output):
         axis.grid(axis="x")
     axes[-1].set(xlim=(start, end), xlabel="Hours since beginning; red: tampered ships")
     fig.suptitle(example_description(schedules))
-    save_figure(fig, output, "07_schedule_example")
+    save_figure(fig, output, "06_schedule_example")

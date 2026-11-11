@@ -7,10 +7,10 @@ from pathlib import Path
 def create_parser():
     """利用できるコマンド引数と、その既定値を定義する。"""
     parser = argparse.ArgumentParser(
-        description="4バースの到着情報改ざん実験を実行し、設定・CSV・論文用グラフを保存する。"
+        description="4バースの到着情報改ざん実験を実行し、設定・Excel・論文用グラフを保存する。"
     )
     parser.add_argument("--study", action="store_true", help="複数船の主実験と早い・遅い申告の混在補足を実行")
-    parser.add_argument("--trials", type=int, default=100)
+    parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=Path("results"))
     parser.add_argument("--no-plot", action="store_true")
