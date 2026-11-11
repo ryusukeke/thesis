@@ -21,7 +21,7 @@ def create_parser():
 def parse_args(parser):
     """定義した引数を読み、保存先を確認する。"""
     args = parser.parse_args()
-    # 過去結果のサブフォルダは許可し、直下にファイルがあれば上書きを防ぐ。
+    # 直下にファイルがあれば、保存済みの結果を上書きしない。
     if not args.no_save and args.output.exists() and any(path.is_file() for path in args.output.iterdir()):
         parser.error("保存先にファイルがあります。既存結果を残すため、別の--outputを指定してください。")
     return args

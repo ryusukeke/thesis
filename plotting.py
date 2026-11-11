@@ -17,6 +17,14 @@ SCALE_NAMES = {"single": "1 ship", "p10": "10%", "p30": "30%", "p50": "50%"}
 COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
 PLOT_STYLE = {"figure.titlesize": 11, "axes.titlesize": 10, "legend.fontsize": 8,
               "errorbar.capsize": 3, "grid.alpha": 0.2, "savefig.dpi": 180}
+FIGURE_CAPTIONS = {
+    "01_attack_fraction": "Figure 1. Change in mean waiting by tampering scale",
+    "02_attack_width": "Figure 2. Change in mean waiting by report shift magnitude",
+    "03_group_burden": "Figure 3. Changes in waiting for tampered, other and all ships",
+    "04_waiting_overview": "Figure 4. Mean waiting and changes from normal operations",
+    "05_queue_example": "Figure 5. Numbers of ships waiting over time",
+    "06_schedule_example": "Figure 6. Normal and tampered handling schedules",
+}
 
 
 def plot_results(results, output, full_study):
@@ -30,9 +38,11 @@ def plot_results(results, output, full_study):
         plot_schedule_example(results["schedules"], output)
 
 
-def save_figure(fig, output, filename):
-    """配置を整え、PNGとPDFで保存する。"""
-    fig.tight_layout()
+def save_figure(fig, output, filename, note):
+    """図番号・タイトル・条件を図の下へ置き、PNGとPDFで保存する。"""
+    caption = FIGURE_CAPTIONS[filename] + "\n" + note
+    fig.text(0.5, 0.02, caption, ha="center", va="bottom", fontsize=11)
+    fig.tight_layout(rect=(0, 0.65 / fig.get_figheight(), 1, 1))
     for suffix in ("png", "pdf"):
         fig.savefig(output / f"{filename}.{suffix}")
     plt.close(fig)
@@ -82,8 +92,7 @@ def plot_waiting_comparison(data, output, filename, x_column, xlabel, subtitle):
         axis.legend()
     axes[0].set_ylabel("All ships: change in mean waiting (hours)")
     note = "; 1 trial per condition" if data.trials.max() == 1 else "; whiskers: +1 sample SD of paired changes"
-    fig.suptitle(subtitle + note)
-    save_figure(fig, output, filename)
+    save_figure(fig, output, filename, subtitle + note)
 
 
 def select_overview_rows(summary):
@@ -107,8 +116,7 @@ def plot_group_burden(summary, output):
         axis.set_xticks(range(len(POLICIES)), ["A", "B", "C"])
         axis.legend()
     axes[0].set_ylabel("Change in group mean waiting (hours)")
-    fig.suptitle("30% tampered; report shift magnitude 4 h")
-    save_figure(fig, output, "03_group_burden")
+    save_figure(fig, output, "03_group_burden", "30% tampered; report shift magnitude 4 h")
 
 
 def plot_waiting_overview(results, output, full_study):
@@ -129,8 +137,8 @@ def plot_waiting_overview(results, output, full_study):
     axes[0].set(title="All ships: normal and tampered", ylabel="Mean waiting time (hours)", ylim=(0, None))
     setup_change_axis(axes[1], "Tampered minus same-policy normal", "Operating policy")
     axes[1].set_ylabel("Change in mean waiting (hours)")
-    fig.suptitle( ("30% tampered" if full_study else "V5 tampered") + "; shift magnitude 4 h")
-    save_figure(fig, output, "04_waiting_overview")
+    note = ("30% tampered" if full_study else "V5 tampered") + "; shift magnitude 4 h"
+    save_figure(fig, output, "04_waiting_overview", note)
 
 
 def queue_profile(schedule, end):
@@ -163,8 +171,7 @@ def plot_queue_example(schedules, output):
         axis.grid(axis="y")
         axis.legend()
     axes[-1].set(xlabel="Hours since beginning", xlim=(0, end))
-    fig.suptitle(example_description(schedules))
-    save_figure(fig, output, "05_queue_example")
+    save_figure(fig, output, "05_queue_example", example_description(schedules))
 
 
 def draw_ship_schedule(axis, schedule, targets, start, end):
@@ -197,5 +204,4 @@ def plot_schedule_example(schedules, output):
         axis.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
         axis.grid(axis="x")
     axes[-1].set(xlim=(start, end), xlabel="Hours since beginning; red: tampered ships")
-    fig.suptitle(example_description(schedules))
-    save_figure(fig, output, "06_schedule_example")
+    save_figure(fig, output, "06_schedule_example", example_description(schedules))

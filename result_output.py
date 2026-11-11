@@ -7,8 +7,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from openpyxl import __version__ as openpyxl_version
+from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from simulation import DURATION_HOURS, NUM_BERTHS, POLICIES, SHIFT_HOURS
 
@@ -62,6 +64,13 @@ EXCEL_VALUES = {
     "scenario": {"normal": "正常", "early": "早い申告", "late": "遅い申告", "mixed": "早い・遅い申告の混在"},
     "policy": {"fixed": "固定", "same_berth": "同じバース内調整", "reassign": "バース変更"},
     "metric": METRIC_LABELS,
+}
+SUMMARY_OVERVIEW_COLUMNS = {
+    "attack_scale": "改ざんする船", "shift_hours": "申告変更幅（時間）",
+    "scenario": "申告の方向", "policy": "運用方式",
+    "normal_mean": "正常時の平均待ち（時間）",
+    "mean": "改ざん後の平均待ち（時間）",
+    "mean_difference": "待ち時間の増減（時間）",
 }
 
 
@@ -136,7 +145,7 @@ def create_config(args, results, interval):
         "numpy_version": np.__version__,
         "pandas_version": pd.__version__,
         "openpyxl_version": openpyxl_version,
-        "result_format": "results.xlsx; 条件別集計・試行別結果・船別データ; 計算済みの値を日本語で表示",
+        "result_format": "results.xlsx; 条件別集計は平均待ちの一覧と13指標の詳細; 試行別結果・船別データ; 日本語表示",
         "code_sha256": calculate_file_hashes(ROOT, CODE_FILES),
         "reference_sha256": calculate_file_hashes(REFERENCE_DIR, REFERENCE_FILES),
         "sources": {
@@ -152,6 +161,9 @@ def save_excel(results, path):
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         for name in EXCEL_SHEETS:
             table = results[name]
+            if name == "summary":
+                save_summary_sheet(writer, table)
+                continue
             display = translate_excel_table(table)
             sheet_name = EXCEL_SHEETS[name]
             display.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -159,13 +171,89 @@ def save_excel(results, path):
             format_result_sheet(sheet, table)
 
 
-def translate_excel_table(table):
+def create_summary_overview(summary):
+    """全船平均待ちだけを取り出し、同じ条件の3方式を並べる。"""
+    overview = summary.loc[summary.metric == "average_waiting_time", list(SUMMARY_OVERVIEW_COLUMNS)].copy()
+    orders = {"attack_scale": ["single", "p10", "p30", "p50"],
+              "scenario": ["early", "late", "mixed"], "policy": list(POLICIES)}
+    for column, values in orders.items():
+        overview[column] = pd.Categorical(overview[column], categories=values, ordered=True)
+    overview = overview.sort_values(["attack_scale", "shift_hours", "scenario", "policy"])
+    for column in orders:
+        overview[column] = overview[column].astype(object)
+    return overview.reset_index(drop=True)
+
+
+def save_summary_sheet(writer, summary):
+    """上段は平均待ちの比較、下段は元の13指標をすべて残す。"""
+    overview = create_summary_overview(summary)
+    name = EXCEL_SHEETS["summary"]
+    translate_excel_table(overview, SUMMARY_OVERVIEW_COLUMNS).to_excel(
+        writer, sheet_name=name, startrow=6, index=False
+    )
+    detail_header = len(overview) + 14
+    translate_excel_table(summary).to_excel(writer, sheet_name=name, startrow=detail_header - 1, index=False)
+    sheet = writer.sheets[name]
+    format_result_sheet(sheet, overview, header_row=7)
+    format_result_sheet(sheet, summary, header_row=detail_header)
+    format_summary_sheet(sheet, overview, summary, detail_header)
+
+
+def format_summary_sheet(sheet, overview, summary, detail_header):
+    """読み方・表題を添え、条件の区切りと増減を見分けやすくする。"""
+    notes = {
+        1: "条件別集計　全船の平均待ち時間",
+        2: "1行は「改ざん条件と運用方式」の結果。同じ条件の3方式を続けて表示。",
+        3: "増減＝改ざん後−正常時。＋は待ちが増加、−は減少、0は正常時と同じ。",
+        4: f"各条件{int(summary.trials.max())}試行。時間は船1隻あたりの平均。0でも待ち時間がないとは限りません。",
+        6: "表1 全船の平均待ち時間の比較",
+        detail_header - 3: "表2 全13指標の詳細集計",
+        detail_header - 2: "対象船群＝改ざんした船、対象外船群＝それ以外の船。1試行の標準偏差は空欄。",
+    }
+    for row, text in notes.items():
+        cell = sheet.cell(row, 1, text)
+        cell.font = Font(name="Arial", size=14 if row == 1 else 10,
+                         bold=row in (1, 6, detail_header - 3), color="000000")
+        cell.alignment = Alignment(vertical="center")
+        sheet.row_dimensions[row].height = 26 if row == 1 else 22
+    for row, label, target in [(6, "詳細13指標へ", detail_header - 3),
+                               (detail_header - 3, "一覧へ戻る", 1)]:
+        link = sheet.cell(row, 7, label)
+        link.hyperlink = f"#'条件別集計'!A{target}"
+        link.font = Font(name="Arial", size=10, color="0563C1", underline="single")
+    sheet.freeze_panes = "E8"
+    sheet.sheet_view.zoomScale = 90
+    for column, width in zip("ABCDEFG", [22, 17, 28, 24, 24, 24, 24]):
+        sheet.column_dimensions[column].width = width
+    sheet.row_dimensions[7].height = 36
+    table = Table(displayName="WaitingOverview", ref=f"A7:G{7 + len(overview)}")
+    table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=False)
+    sheet.add_table(table)
+    groups = overview.groupby(["attack_scale", "shift_hours", "scenario"], sort=False).ngroup()
+    for index, group in enumerate(groups, 8):
+        for cell in sheet[index][:7]:
+            cell.fill = PatternFill("solid", fgColor="F0F4F8" if group % 2 else "FFFFFF")
+        sheet.cell(index, 2).alignment = Alignment(horizontal="center", vertical="center")
+        difference = sheet.cell(index, 7)
+        if abs(difference.value) >= 1e-12:
+            base = excel_number_format(difference.value)
+            difference.number_format = f"+{base};-{base};0"
+    changes = f"G8:G{7 + len(overview)}"
+    for operator, limit, fill, color in [("greaterThan", 1e-9, "FCE8E6", "9C0006"),
+                                         ("lessThan", -1e-9, "E2F0D9", "275A2B")]:
+        sheet.conditional_formatting.add(changes, CellIsRule(
+            operator=operator, formula=[str(limit)], fill=PatternFill("solid", fgColor=fill),
+            font=Font(color=color)
+        ))
+
+
+def translate_excel_table(table, columns=EXCEL_COLUMNS):
     """計算に使う英語の識別子は保ち、Excelへ渡す表だけ日本語にする。"""
     display = table.copy(deep=True)
     for column, labels in EXCEL_VALUES.items():
         if column in display:
             display[column] = display[column].replace(labels)
-    return display.rename(columns=EXCEL_COLUMNS)
+    return display.rename(columns=columns)
 
 
 def excel_number_format(value, percentage=False):
@@ -183,20 +271,21 @@ def excel_number_format(value, percentage=False):
     return "0" + decimals + suffix
 
 
-def format_result_sheet(sheet, table):
+def format_result_sheet(sheet, table, header_row=1):
     """保存した表の見出し、列幅、数値表示を整える。"""
     sheet.freeze_panes = "B2"
-    sheet.auto_filter.ref = sheet.dimensions
+    last_row = header_row + len(table)
+    sheet.auto_filter.ref = f"A{header_row}:{get_column_letter(len(table.columns))}{last_row}"
     sheet.sheet_view.showGridLines = False
-    sheet.row_dimensions[1].height = 60
+    sheet.row_dimensions[header_row].height = 60
     for index, column in enumerate(table.columns, 1):
-        header = sheet.cell(1, index)
+        header = sheet.cell(header_row, index)
         header.fill = PatternFill("solid", fgColor="243B53")
         header.font = Font(name="Arial", size=10, bold=True, color="FFFFFF")
         header.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         width = 64 if column in ("target_ships", "report_shifts") else 26
         sheet.column_dimensions[get_column_letter(index)].width = width
-        for cells in sheet.iter_rows(min_row=2, min_col=index, max_col=index):
+        for cells in sheet.iter_rows(min_row=header_row + 1, max_row=last_row, min_col=index, max_col=index):
             cell = cells[0]
             cell.font = Font(name="Arial", size=10)
             cell.alignment = Alignment(vertical="center", wrap_text=True)
@@ -204,7 +293,7 @@ def format_result_sheet(sheet, table):
                 cell.number_format = excel_number_format(
                     cell.value, percentage=column == "actual_attack_fraction"
                 )
-    for cells in sheet.iter_rows(min_row=2):
+    for cells in sheet.iter_rows(min_row=header_row + 1, max_row=last_row, max_col=len(table.columns)):
         lines = 1
         for cell in cells:
             if isinstance(cell.value, str):

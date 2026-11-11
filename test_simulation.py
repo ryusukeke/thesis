@@ -13,7 +13,9 @@ import numpy as np
 import pandas as pd
 
 from cli import create_parser, parse_args
-from result_output import EXCEL_COLUMNS, EXCEL_VALUES, REFERENCE_DIR, create_config, excel_number_format, save_results
+from result_output import (EXCEL_COLUMNS, EXCEL_VALUES, REFERENCE_DIR, SUMMARY_OVERVIEW_COLUMNS,
+                           create_config, create_summary_overview, excel_number_format, save_results,
+                           translate_excel_table)
 from simulation import (POLICIES, apply_attack, create_plan,
                         calculate_metrics, execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
                         run_experiment, select_targets)
@@ -34,7 +36,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(args.output, Path('results'))
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
-            (output / 'archive').mkdir()
+            (output / 'subdirectory').mkdir()
             arguments = ['main.py', '--output', str(output)]
             with patch('sys.argv', arguments):
                 self.assertEqual(parse_args(create_parser()).output, output)
@@ -339,6 +341,14 @@ class SimulationTests(unittest.TestCase):
             from openpyxl import load_workbook
             workbook = load_workbook(output / 'results.xlsx')
             for sheet in workbook:
+                if sheet.title == '条件別集計':
+                    self.assertEqual(sheet.freeze_panes, 'E8')
+                    self.assertEqual(sheet.tables['WaitingOverview'].ref, 'A7:G13')
+                    self.assertEqual(sheet.auto_filter.ref, 'A20:R98')
+                    self.assertTrue(sheet['A17'].value.startswith('表2'))
+                    self.assertEqual(sheet['G6'].hyperlink.target, "#'条件別集計'!A17")
+                    self.assertEqual(sheet['G17'].hyperlink.target, "#'条件別集計'!A1")
+                    continue
                 self.assertEqual(sheet.freeze_panes, 'B2')
                 self.assertEqual(sheet.auto_filter.ref, sheet.dimensions)
                 self.assertFalse(sheet.sheet_view.showGridLines)
@@ -355,6 +365,10 @@ class SimulationTests(unittest.TestCase):
                 self.assertEqual(excel_number_format(value), expected)
             self.assertEqual(excel_number_format(1 / 63, percentage=True), '0.##%')
             workbook.close()
+            saved_overview = pd.read_excel(output / 'results.xlsx', sheet_name='条件別集計', header=6, nrows=6)
+            expected = translate_excel_table(create_summary_overview(results['summary']), SUMMARY_OVERVIEW_COLUMNS)
+            pd.testing.assert_frame_equal(saved_overview, expected, check_dtype=False)
+            self.assertEqual(saved_overview['運用方式'].tolist(), ['固定', '同じバース内調整', 'バース変更'] * 2)
             saved_ships = pd.read_excel(output / 'results.xlsx', sheet_name='船別データ')
             self.assertEqual(saved_ships['船ID'].nunique(), len(results['ship_data']))
             self.assertIn('実到着時刻（時間）', saved_ships)
@@ -364,7 +378,8 @@ class SimulationTests(unittest.TestCase):
             restored = saved_ships.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
             pd.testing.assert_frame_equal(restored, results['ship_data'], check_dtype=False)
             for name, sheet_name in [('run_metrics', '試行別結果'), ('summary', '条件別集計')]:
-                saved = pd.read_excel(output / 'results.xlsx', sheet_name=sheet_name)
+                header = 19 if name == 'summary' else 0
+                saved = pd.read_excel(output / 'results.xlsx', sheet_name=sheet_name, header=header)
                 self.assertIn('運用方式', saved)
                 self.assertEqual(set(saved['運用方式']), {'固定', '同じバース内調整', 'バース変更'})
                 self.assertIn('早い申告', saved['申告条件'].values)

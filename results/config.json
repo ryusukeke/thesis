@@ -76,13 +76,13 @@
   "numpy_version": "2.5.1",
   "pandas_version": "3.0.3",
   "openpyxl_version": "3.1.5",
-  "result_format": "results.xlsx; 条件別集計・試行別結果・船別データ; 計算済みの値を日本語で表示",
+  "result_format": "results.xlsx; 条件別集計は平均待ちの一覧と13指標の詳細; 試行別結果・船別データ; 日本語表示",
   "code_sha256": {
     "simulation.py": "dcda16c5d75faa757580d13e2a9995aaf975acc9f0d82c8d873b60227a7dec13",
     "main.py": "bc7d44eaa4a22f3691f6f575ee1c2fda393f9160c6574bdfde2fe090d2ec045c",
-    "cli.py": "7758288069e52e3e4eaadcb61021445d343cee7c0450e2adb5a1d6778393ccdc",
-    "result_output.py": "8ea1f940dda6403de02aa873a4cf94debfef6595c0dced25759fa6c75f8b5694",
-    "plotting.py": "a4862012aef50bf1e0eb3488246240e28bff32822dceeae5709e84006040ad6b"
+    "cli.py": "f9da8b34f4dd1eedb5a879ace5400805a1826d3fdca20c0b420bfcb7131c1d58",
+    "result_output.py": "c425f29ac6030b7106016e1ef2724a65c04c455aec805576da7aae1c2d501db0",
+    "plotting.py": "7c88ed2d8473eb41fbf45c656f0fcbf2746a7527eab87c135d6a8aa2ba30e07e"
   },
   "reference_sha256": {
     "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",
@@ -94,23 +94,17 @@
     "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",
     "information_manipulation": "https://doi.org/10.1088/1742-6596/2867/1/012047"
   },
-  "output_translation": {
-    "language": "ja",
-    "previous_result_output_sha256": "2e747857f8a7c90909ca3ea2fd3bf983bed100e18970aee694ab51db86eb110e",
-    "numerical_values_unchanged": true
-  },
-  "ship_data_export": {
-    "rows": 63,
-    "source": "generated inputs reproduced from saved seed and conditions",
-    "previous_result_output_sha256": "b35b2498760b378449c01a98659197fc543d7c8f54d70a19980f592f92df08d3",
-    "existing_result_values_unchanged": true
-  },
   "excel_number_format": {
     "significant_digits_for_fractional_values": 3,
     "integer_values": "unchanged; no decimals",
     "trailing_zeros": "omitted",
-    "near_zero_display_threshold": 1e-12,
-    "numeric_values_unchanged": true,
-    "previous_result_output_sha256": "9574b875229b3b1d5f7aac89956ac3f8fdf7e0361976efc8810d413238b37c5e"
+    "near_zero_display_threshold": 1e-12
+  },
+  "figure_caption_position": "bottom",
+  "summary_layout": {
+    "overview_rows": 99,
+    "overview_header_row": 7,
+    "detail_header_row": 113,
+    "detail_rows": 1287
   }
 }
