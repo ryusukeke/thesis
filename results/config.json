@@ -79,7 +79,19 @@
   "numpy_version": "2.5.1",
   "pandas_version": "3.0.3",
   "openpyxl_version": "3.1.5",
-  "result_format": "results.xlsx; 平均待ち比較・8指標の詳細; 試行別結果; 船別入力と申告変更; 日本語表示",
+  "result_format": "results.xlsx; 条件別集計・試行別結果・船別データ・待ち理由; 日本語表示",
+  "waiting_diagnostics": {
+    "classification_priority": [
+      "all_berths_busy_wait",
+      "assigned_berth_wait",
+      "planned_order_wait",
+      "planned_start_wait"
+    ],
+    "classification": "exclusive states of observed waiting intervals; not a causal decomposition",
+    "competition_rule": "reassign only; at each unique arrival/completion before starts: waiting_ships > free_berths > 0",
+    "participations": "each candidate ship counts once per competition event; not additive to event count",
+    "detail_rows": 3666
+  },
   "excel_number_format": {
     "significant_digits_for_fractional_values": 3,
     "integer_values": "unchanged; no decimals",
@@ -94,10 +106,10 @@
     "detail_rows": 24
   },
   "code_sha256": {
-    "simulation.py": "d03604830f3f5c214e5e0f519894e959aab6b7e94dedfc16f003dbc2bfb932a7",
+    "simulation.py": "6ea0dccc69667f3764daf85bb723928bc979098a042c673d7973da54a91be110",
     "main.py": "9347fed2f9910cd576c162ae10fd48b320914ad5f43d2bced7399b8bde700d9f",
     "cli.py": "a674c4fc91913fc0b4cb9ad6f4891dc564857554f8f1c57a691e0aa45f4db1f3",
-    "result_output.py": "2909aca26b59de6eabf21fa3e4a6a7570a3c5eab980479db0d192e6fb577a0bd",
+    "result_output.py": "2108f48f50585efa698a7f98a7240d484f418fa7cf8e873a0c4e9823d9892ec9",
     "plotting.py": "3b07ca99f4055bafea1f59635c032a8a4d2aa0c3e62be64d195675497ff42fc0"
   },
   "reference_sha256": {

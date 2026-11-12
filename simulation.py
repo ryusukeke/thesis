@@ -19,6 +19,12 @@ METRICS = (
     "berth_changes",
     "increased_waiting_ships",
 )
+WAIT_REASONS = (
+    "all_berths_busy_wait",
+    "assigned_berth_wait",
+    "planned_order_wait",
+    "planned_start_wait",
+)
 
 
 def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
@@ -220,6 +226,66 @@ def calculate_metrics(schedule, normal=None):
     }
 
 
+def calculate_waiting_reasons(schedule, num_berths, policy):
+    """運用後の時間帯を4状態に分ける。複数条件が重なる場合の優先順を固定する。"""
+    arrivals = schedule.actual_arrival_time.to_numpy()
+    starts = schedule.start_time.to_numpy()
+    completions = schedule.completion_time.to_numpy()
+    berths = schedule.assigned_berth.to_numpy()
+    planned_starts = schedule.planned_start_time.to_numpy()
+    previous_completions = (
+        schedule.sort_values("assignment_order").groupby("planned_berth").completion_time
+        .shift(fill_value=0).reindex(schedule.index).to_numpy()
+    )
+    reasons = {name: np.zeros(len(schedule)) for name in WAIT_REASONS}
+    times = np.unique(np.r_[arrivals, starts, completions, planned_starts])
+    for current, following in zip(times[:-1], times[1:]):
+        waiting = (arrivals <= current) & (starts > current)
+        if not waiting.any():
+            continue
+        active = (starts <= current) & (completions > current)
+        busy_berths = set(berths[active])
+        if len(busy_berths) == num_berths:
+            reasons["all_berths_busy_wait"][waiting] += following - current
+            continue
+        # 空きはあるが指定先が使用中。その次に、計画の順番・時刻の条件を調べる。
+        assigned_busy = waiting & np.isin(berths, list(busy_berths))
+        reasons["assigned_berth_wait"][assigned_busy] += following - current
+        remaining = waiting & ~assigned_busy
+        if policy == "fixed":
+            order_blocked = remaining & (previous_completions > current)
+            reasons["planned_order_wait"][order_blocked] += following - current
+            remaining &= ~order_blocked
+            time_blocked = remaining & (planned_starts > current)
+            reasons["planned_start_wait"][time_blocked] += following - current
+            remaining &= ~time_blocked
+        if remaining.any():
+            raise ValueError("開始条件を満たしたまま待つ船があり、待ちの内訳を分類できません。")
+    details = schedule[["ship", "actual_arrival_time", "reported_arrival_time", "planned_berth",
+                        "assigned_berth", "planned_start_time", "start_time", "completion_time", "waiting_time"]].copy()
+    for name, values in reasons.items():
+        details[name] = values
+    return details
+
+
+def count_start_competitions(schedule, num_berths):
+    """バース変更で開始枠が不足する到着・完了時刻を1回ずつ数え、船別の参加数も返す。"""
+    arrivals = schedule.actual_arrival_time.to_numpy()
+    starts = schedule.start_time.to_numpy()
+    completions = schedule.completion_time.to_numpy()
+    participations = np.zeros(len(schedule), dtype=int)
+    count = 0
+    for current in np.unique(np.r_[arrivals, completions]):
+        # 同時刻の新たな荷役開始を入れる前に、到着と完了をまとめて反映する。
+        occupied = (starts < current) & (completions > current)
+        free = num_berths - int(occupied.sum())
+        candidates = (arrivals <= current) & (starts >= current)
+        if 0 < free < int(candidates.sum()):
+            count += 1
+            participations[candidates] += 1
+    return count, participations
+
+
 def summarize_results(run_metrics):
     """試行・方式が同じ正常値との差を求め、方式ごとに10試行を集計する。"""
     normal = run_metrics[run_metrics.scenario == "normal"].set_index(["trial", "policy"])
@@ -277,18 +343,28 @@ def run_comparison_cases(data, attacked, shared, policies):
     """正常計画と改ざん後の計画を各1回作り、同じ船データで3方式を比較する。"""
     normal_plan = create_plan(data)
     attacked_plan = create_plan(attacked)
-    schedules, metrics = [], []
+    schedules, metrics, waiting_details = [], [], []
+    num_berths = sum(column.startswith("handling_time_B") for column in data)
     for policy in policies:
         normal = execute_policy(data, normal_plan, policy)
         attack = execute_policy(attacked, attacked_plan, policy)
         for scenario, schedule in (("normal", normal), ("attack", attack)):
             labels = {**shared, "scenario": scenario, "policy": policy}
             schedules.append(schedule.assign(**labels))
+            details = calculate_waiting_reasons(schedule, num_berths, policy)
+            competition_events = np.nan
+            details["competition_participations"] = np.nan
+            if policy == "reassign":
+                competition_events, participations = count_start_competitions(schedule, num_berths)
+                details["competition_participations"] = participations
+            waiting_details.append(details.assign(**labels))
             metrics.append({
                 **labels, "num_ships": len(data),
                 **calculate_metrics(schedule, normal if scenario == "attack" else None),
+                **{f"average_{name}": details[name].mean() for name in WAIT_REASONS},
+                "competition_events": competition_events,
             })
-    return normal_plan, schedules, metrics
+    return normal_plan, schedules, metrics, waiting_details
 
 
 def example_wait_increase(metrics, policy):
@@ -314,7 +390,7 @@ def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
             raise ValueError(f"{name}は有限で正の値にしてください。")
     if not policies or len(set(policies)) != len(policies) or any(p not in POLICIES for p in policies):
         raise ValueError("比較ルールは既知の値から重複なく選んでください。")
-    inputs, schedules, metrics, diagnostics = [], [], [], []
+    inputs, schedules, metrics, diagnostics, waiting_details = [], [], [], [], []
     best_increase = -np.inf
     for trial in range(1, trials + 1):
         trial_seed = seed + trial - 1
@@ -333,7 +409,8 @@ def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
             attacked_reported_arrival_time=attacked.reported_arrival_time,
             actual_report_shift=attacked.reported_arrival_time - data.actual_arrival_time,
         ))
-        normal_plan, case_schedules, case_metrics = run_comparison_cases(data, attacked, shared, policies)
+        normal_plan, case_schedules, case_metrics, case_details = run_comparison_cases(data, attacked, shared, policies)
+        waiting_details.extend(case_details)
         diagnostics.append({**shared, **calculate_plan_diagnostics(data, normal_plan, duration_hours)})
         if keep_schedules:
             schedules.extend(case_schedules)
@@ -349,4 +426,5 @@ def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
         "run_metrics": run_metrics,
         "summary": summarize_results(run_metrics),
         "plan_diagnostics": pd.DataFrame(diagnostics),
+        "waiting_details": pd.concat(waiting_details, ignore_index=True),
     }

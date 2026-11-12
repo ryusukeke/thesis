@@ -18,7 +18,8 @@ from result_output import (EXCEL_COLUMNS, EXCEL_VALUES, REFERENCE_DIR, SUMMARY_O
                            translate_excel_table)
 from simulation import (POLICIES, apply_attack, create_plan,
                         calculate_metrics, execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
-                        run_experiment, create_report_shifts, REPORT_SHIFT_CHOICES)
+                        run_experiment, create_report_shifts, REPORT_SHIFT_CHOICES,
+                        WAIT_REASONS, calculate_waiting_reasons, count_start_competitions)
 
 
 def small_data(arrivals, handling):
@@ -264,10 +265,57 @@ class SimulationTests(unittest.TestCase):
         np.testing.assert_array_equal(times,[0,2,3,6,9])
         np.testing.assert_array_equal(counts,[0,1,1,0,0])
 
+    def test_waiting_reason_priority_matches_hand_calculation(self):
+        # V2は0〜5時が順番待ち、5〜6時は全バース使用中、6〜8時は別バース空き、8〜10時が計画時刻待ち。
+        plan = pd.DataFrame({
+            'assignment_order': [1, 2, 3], 'ship': ['V1', 'V2', 'V3'],
+            'actual_arrival_time': [5., 0., 0.], 'reported_arrival_time': [0., 10., 0.],
+            'assigned_berth': ['B1', 'B1', 'B2'], 'handling_time': [3., 3., 6.],
+            'planned_start_time': [0., 10., 0.], 'planned_completion_time': [3., 13., 6.],
+        })
+        schedule = execute_fixed_plan(plan)
+        saved = schedule.copy(deep=True)
+        details = calculate_waiting_reasons(schedule, 2, 'fixed').set_index('ship')
+        np.testing.assert_allclose(details.loc['V2', list(WAIT_REASONS)], [1, 2, 5, 2])
+        np.testing.assert_allclose(details[list(WAIT_REASONS)].sum(axis=1), details.waiting_time)
+        pd.testing.assert_frame_equal(schedule, saved)
+
+    def test_start_competitions_merge_events_and_count_participating_ships(self):
+        data = small_data([0, 2, 2], [2, 2, 2])
+        schedule = execute_adjusted_plan(data, create_plan(data), 'reassign')
+        count, participants = count_start_competitions(schedule, 1)
+        self.assertEqual(count, 1)
+        np.testing.assert_array_equal(participants, [0, 1, 1])
+        # 空きが2つあれば同時到着2隻だけでは開始枠の不足にならない。
+        data = small_data([0, 0], [2, 2])
+        data['handling_time_B2'] = [2., 2.]
+        schedule = execute_adjusted_plan(data, create_plan(data), 'reassign')
+        count, participants = count_start_competitions(schedule, 2)
+        self.assertEqual(count, 0)
+        np.testing.assert_array_equal(participants, [0, 0])
+
+    def test_waiting_details_reconcile_with_each_case_and_competition_scope(self):
+        result = run_experiment(trials=2, duration_hours=None, num_ships=20, mean_interarrival_time=0.5)
+        details = result['waiting_details']
+        self.assertEqual(len(details), 2 * 6 * 20)
+        np.testing.assert_allclose(details[list(WAIT_REASONS)].sum(axis=1), details.waiting_time)
+        self.assertTrue((details[list(WAIT_REASONS)] >= 0).all().all())
+        for (trial, scenario, policy), case in details.groupby(['trial', 'scenario', 'policy']):
+            metric = result['run_metrics'].query('trial==@trial and scenario==@scenario and policy==@policy').iloc[0]
+            self.assertAlmostEqual(metric.average_waiting_time, case.waiting_time.mean())
+            for name in WAIT_REASONS:
+                self.assertAlmostEqual(metric[f'average_{name}'], case[name].mean())
+            if policy == 'reassign':
+                np.testing.assert_allclose(case.all_berths_busy_wait, case.waiting_time)
+                self.assertTrue(case.competition_participations.notna().all())
+            else:
+                self.assertTrue(np.isnan(metric.competition_events))
+                self.assertTrue(case.competition_participations.isna().all())
+
     def test_default_storage_keeps_only_the_declared_example(self):
         compact=run_experiment(trials=2)
         full=run_experiment(trials=2,keep_schedules=True)
-        for name in ['ship_data','run_metrics','summary','plan_diagnostics']:
+        for name in ['ship_data','run_metrics','summary','plan_diagnostics','waiting_details']:
             pd.testing.assert_frame_equal(compact[name],full[name])
         sample=compact['schedules']
         self.assertEqual(sample.trial.nunique(),1)
@@ -311,7 +359,7 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(row.scheduled_ship_days, int((counted.snapshot_date == row.snapshot_date).sum()))
         self.assertEqual(reference['mean_candidate_interval_hours'], 24 * len(daily) / len(counted))
 
-    def test_saved_output_contains_three_japanese_sheets_and_preserves_values(self):
+    def test_saved_output_contains_four_japanese_sheets_and_preserves_values(self):
         args = create_parser().parse_args(['--trials', '1', '--no-plot'])
         results = run_experiment(trials=1)
         config = create_config(args, results, 3.0)
@@ -321,7 +369,7 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual({path.name for path in output.iterdir()},
                              {'config.json', 'results.xlsx'})
             with pd.ExcelFile(output / 'results.xlsx') as workbook_file:
-                self.assertEqual(workbook_file.sheet_names, ['条件別集計', '試行別結果', '船別データ'])
+                self.assertEqual(workbook_file.sheet_names, ['条件別集計', '試行別結果', '船別データ', '待ち理由'])
             from openpyxl import load_workbook
             workbook = load_workbook(output / 'results.xlsx')
             for sheet in workbook:
@@ -332,6 +380,13 @@ class SimulationTests(unittest.TestCase):
                     self.assertTrue(sheet['A14'].value.startswith('表2'))
                     self.assertEqual(sheet['D6'].hyperlink.target, "#'条件別集計'!A14")
                     self.assertEqual(sheet['D14'].hyperlink.target, "#'条件別集計'!A1")
+                    continue
+                if sheet.title == '待ち理由':
+                    self.assertEqual(sheet.freeze_panes, 'E19')
+                    self.assertEqual(sheet.tables['WaitingReasonsOverview'].ref, 'A7:H13')
+                    self.assertEqual(len(sheet.tables), 2)
+                    self.assertEqual(sheet['H6'].hyperlink.target, "#'待ち理由'!A16")
+                    self.assertEqual(sheet['H16'].hyperlink.target, "#'待ち理由'!A1")
                     continue
                 self.assertEqual(sheet.freeze_panes, 'B2')
                 self.assertEqual(sheet.auto_filter.ref, sheet.dimensions)
@@ -361,6 +416,13 @@ class SimulationTests(unittest.TestCase):
                 self.assertIn(f'B{berth}の荷役時間（時間）', saved_ships)
             restored = saved_ships.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
             pd.testing.assert_frame_equal(restored, results['ship_data'], check_dtype=False)
+            reasons = pd.read_excel(output / 'results.xlsx', sheet_name='待ち理由', header=17)
+            self.assertEqual(len(reasons), len(results['waiting_details']))
+            columns = ['全バース使用中の待ち（時間）', '指定バース使用中・別バース空きの待ち（時間）',
+                       '計画順番待ち（時間）', '計画開始待ち（時間）']
+            np.testing.assert_allclose(reasons[columns].sum(axis=1), reasons['待ち時間（時間）'])
+            self.assertEqual(reasons[['試行番号', '申告条件', '運用方式', '船ID']].duplicated().sum(), 0)
+            self.assertTrue(reasons.loc[reasons['運用方式'] != 'バース変更', '開始枠の競合参加回数（回）'].isna().all())
             for name, sheet_name in [('run_metrics', '試行別結果'), ('summary', '条件別集計')]:
                 header = 16 if name == 'summary' else 0
                 saved = pd.read_excel(output / 'results.xlsx', sheet_name=sheet_name, header=header)
