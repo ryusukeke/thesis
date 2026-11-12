@@ -1,88 +1,104 @@
 {
-  "model_version": "discrete_4berth_multi_ship_v6",
-  "full_study": true,
-  "trials_per_cell": 1,
+  "model_version": "discrete_4berth_all_ships_random_v8",
+  "trials_per_cell": 10,
   "first_seed": 42,
-  "last_seed": 42,
+  "last_seed": 51,
   "num_berths": 4,
-  "num_ships": null,
   "arrival_duration_hours": 168.0,
   "base_mean_interarrival_hours": 3.029126213592233,
   "interval_source": "kobe_day_ahead_forecasts",
-  "attack_scales": [
-    "single",
-    "p10",
-    "p30",
-    "p50"
+  "attack_fraction": 1.0,
+  "report_shift_choices_hours": [
+    -8,
+    -4,
+    -2,
+    2,
+    4,
+    8
   ],
-  "target_selection": "permutation_prefix; fractions_ceil",
-  "selection_rng_seed": "trial_seed+200000; permutation then first mixed sign",
-  "mixed_rule": "alternating_signs_in_selection_order; random_first_sign; no_single_ship_mixed",
+  "report_shift_probabilities": [
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666,
+    0.16666666666666666
+  ],
+  "attack_rng_seed": "trial_seed+200000; one independent choice per ship in input order",
+  "attack_sharing": "same drawn shifts for all three policies within a trial",
+  "negative_report_rule": "reported_arrival=max(0, actual_arrival+requested_shift)",
   "primary_metric": "average_waiting_time; attack_minus_same_policy_normal",
-  "shift_magnitudes_hours": [
-    2.0,
-    4.0,
-    8.0
-  ],
-  "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
-  "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
   "policies": [
     "fixed",
     "same_berth",
     "reassign"
   ],
+  "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
+  "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
   "handling_shape": 2,
   "handling_scale": 2.4,
   "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
   "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
   "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
   "normal_arrival_adjustment": "none; actual arrivals remain at generated times",
-  "plan_update": "change_all_selected_reports_then_replan_once_before_operations; actual_arrivals_unchanged",
+  "plan_update": "change_all_reports_then_replan_once_before_operations; actual_arrivals_unchanged",
   "comparison_baseline": "same_input_trial_and_policy; attack_minus_normal",
   "initial_berth_state": "all_empty",
   "period_end": "finish_all_ships_arriving_before_period_end_including_later_completions",
   "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
-  "distinct_normal_plans": 1,
-  "main_attack_executions": 72,
-  "mixed_attack_executions": 27,
-  "normal_metrics": "shared across shifts; repeated target-specific metrics are not independent plans",
+  "distinct_normal_plans": 10,
+  "attack_executions": 30,
+  "normal_executions": 30,
   "normal_waiting_summary": [
     {
       "policy": "fixed",
-      "trials": 1,
-      "mean_waiting_hours": 0.2345962154925773,
-      "max_waiting_hours": 2.8747794252149745
+      "trials": 10,
+      "mean_waiting_hours": 0.21013238052530533,
+      "max_waiting_hours": 6.185938012925789
     },
     {
       "policy": "reassign",
-      "trials": 1,
-      "mean_waiting_hours": 0.2345962154925773,
-      "max_waiting_hours": 2.8747794252149745
+      "trials": 10,
+      "mean_waiting_hours": 0.21013238052530533,
+      "max_waiting_hours": 6.185938012925789
     },
     {
       "policy": "same_berth",
-      "trials": 1,
-      "mean_waiting_hours": 0.2345962154925773,
-      "max_waiting_hours": 2.8747794252149745
+      "trials": 10,
+      "mean_waiting_hours": 0.21013238052530533,
+      "max_waiting_hours": 6.185938012925789
     }
   ],
-  "normal_occupancy": 0.4720176297811428,
-  "schedule_storage": "one illustrative trial; maximum fixed mean-wait increase in predefined cell",
-  "example_cell": "p30_mixed_4h",
+  "normal_occupancy": 0.4593863622160854,
+  "schedule_storage": "illustrative trial with largest fixed mean-wait increase; not an average case",
+  "example_seed": 46,
   "normal_plan_diagnostics": {
-    "last_actual_arrival_hours": 161.60923038179516,
-    "last_planned_completion_hours": 170.8695932625677
+    "last_actual_arrival_hours": 167.92088422742663,
+    "last_planned_completion_hours": 190.7173023490338
   },
   "numpy_version": "2.5.1",
   "pandas_version": "3.0.3",
   "openpyxl_version": "3.1.5",
-  "result_format": "results.xlsx; 条件別集計は平均待ちの一覧と13指標の詳細; 試行別結果・船別データ; 日本語表示",
+  "result_format": "results.xlsx; 平均待ち比較・8指標の詳細; 試行別結果; 船別入力と申告変更; 日本語表示",
+  "excel_number_format": {
+    "significant_digits_for_fractional_values": 3,
+    "integer_values": "unchanged; no decimals",
+    "trailing_zeros": "omitted",
+    "near_zero_display_threshold": 1e-12
+  },
+  "figure_caption_position": "bottom",
+  "summary_layout": {
+    "overview_rows": 3,
+    "overview_header_row": 7,
+    "detail_header_row": 17,
+    "detail_rows": 24
+  },
   "code_sha256": {
-    "simulation.py": "dcda16c5d75faa757580d13e2a9995aaf975acc9f0d82c8d873b60227a7dec13",
-    "main.py": "bc7d44eaa4a22f3691f6f575ee1c2fda393f9160c6574bdfde2fe090d2ec045c",
-    "cli.py": "f9da8b34f4dd1eedb5a879ace5400805a1826d3fdca20c0b420bfcb7131c1d58",
-    "result_output.py": "c425f29ac6030b7106016e1ef2724a65c04c455aec805576da7aae1c2d501db0",
-    "plotting.py": "7c88ed2d8473eb41fbf45c656f0fcbf2746a7527eab87c135d6a8aa2ba30e07e"
+    "simulation.py": "d03604830f3f5c214e5e0f519894e959aab6b7e94dedfc16f003dbc2bfb932a7",
+    "main.py": "9347fed2f9910cd576c162ae10fd48b320914ad5f43d2bced7399b8bde700d9f",
+    "cli.py": "a674c4fc91913fc0b4cb9ad6f4891dc564857554f8f1c57a691e0aa45f4db1f3",
+    "result_output.py": "2909aca26b59de6eabf21fa3e4a6a7570a3c5eab980479db0d192e6fb577a0bd",
+    "plotting.py": "3b07ca99f4055bafea1f59635c032a8a4d2aa0c3e62be64d195675497ff42fc0"
   },
   "reference_sha256": {
     "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",
@@ -93,18 +109,5 @@
     "berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
     "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",
     "information_manipulation": "https://doi.org/10.1088/1742-6596/2867/1/012047"
-  },
-  "excel_number_format": {
-    "significant_digits_for_fractional_values": 3,
-    "integer_values": "unchanged; no decimals",
-    "trailing_zeros": "omitted",
-    "near_zero_display_threshold": 1e-12
-  },
-  "figure_caption_position": "bottom",
-  "summary_layout": {
-    "overview_rows": 99,
-    "overview_header_row": 7,
-    "detail_header_row": 113,
-    "detail_rows": 1287
   }
 }

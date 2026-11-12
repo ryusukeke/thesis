@@ -4,8 +4,7 @@ import json
 
 from cli import create_parser, parse_args
 from result_output import REFERENCE_DIR, create_config, print_summary, save_results
-from simulation import (DURATION_HOURS, NUM_BERTHS, POLICIES,
-                        SHIFT_HOURS, run_experiment)
+from simulation import DURATION_HOURS, NUM_BERTHS, POLICIES, run_experiment
 
 
 def main():
@@ -19,11 +18,9 @@ def main():
             trials=args.trials,
             num_berths=NUM_BERTHS,
             seed=args.seed,
-            shift_hours=SHIFT_HOURS,
             policies=POLICIES,
             duration_hours=DURATION_HOURS,
             mean_interarrival_time=interval,
-            full_study=args.study,
         )
     except (OSError, ValueError) as error:
         parser.error(str(error))
@@ -33,7 +30,7 @@ def main():
         save_results(results, config, args.output)
         if not args.no_plot:
             from plotting import plot_results
-            plot_results(results, args.output, args.study)
+            plot_results(results, args.output)
     print_summary(results, interval, None if args.no_save else args.output)
 
 
