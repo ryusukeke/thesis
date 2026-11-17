@@ -12,7 +12,6 @@ METHOD_LABELS = {
 }
 CONDITION_COLUMNS = [
     "condition", "method", "duration", "preparation", "capacity",
-    "include_main", "include_auxiliary",
 ]
 METRICS = [
     "ships", "mean_wait", "max_wait", "long_mean_wait", "delta_wait",
@@ -146,39 +145,21 @@ def simulate(data, method="fifo", outage_start=48.0, duration=24.0,
     }
 
 
-def build_conditions(experiment="両方"):
-    """両実験の条件をまとめ、共通の停止なし・復旧待ち・手動条件を一度だけ作る。"""
-    if experiment not in ("両方", "主実験", "補助実験"):
-        raise ValueError("実験は両方・主実験・補助実験から選んでください。")
-    conditions = {}
-
-    def add(method, duration, preparation, capacity, scope):
-        key = (method, duration, preparation, capacity)
-        if key not in conditions:
-            conditions[key] = {
+def build_conditions():
+    """準備2時間・上限2隻に固定し、停止なしと3停止時間の比較条件を作る。"""
+    conditions = [{
+        "condition": "C01", "method": "normal", "duration": 0.0,
+        "preparation": 0.0, "capacity": 4,
+    }]
+    for duration in (12.0, 24.0, 48.0):
+        for method in ("wait", "fifo", "spt"):
+            conditions.append({
                 "condition": f"C{len(conditions) + 1:02d}", "method": method,
-                "duration": duration, "preparation": preparation, "capacity": capacity,
-                "include_main": False, "include_auxiliary": False,
-            }
-        conditions[key][scope] = True
-
-    for scope in ("include_main", "include_auxiliary"):
-        add("normal", 0.0, 0.0, 4, scope)
-        durations = [6.0, 12.0, 24.0, 48.0] if scope == "include_main" else [24.0]
-        for duration in durations:
-            add("wait", duration, 0.0, 0, scope)
-            manual_settings = [(2.0, 2)] if scope == "include_main" else [
-                (0.0, 2), (2.0, 2), (6.0, 2), (2.0, 1), (2.0, 3),
-            ]
-            for preparation, capacity in manual_settings:
-                for method in ("fifo", "spt"):
-                    add(method, duration, preparation, capacity, scope)
-    table = pd.DataFrame(conditions.values(), columns=CONDITION_COLUMNS)
-    if experiment == "主実験":
-        table = table[table.include_main]
-    elif experiment == "補助実験":
-        table = table[table.include_auxiliary]
-    return table.reset_index(drop=True)
+                "duration": duration,
+                "preparation": 0.0 if method == "wait" else 2.0,
+                "capacity": 0 if method == "wait" else 2,
+            })
+    return pd.DataFrame(conditions, columns=CONDITION_COLUMNS)
 
 
 def measure_run(schedule, normal, fifo, condition, outage_start):
@@ -244,7 +225,7 @@ def run_experiment(settings):
     trials = settings["trials"]
     if not isinstance(trials, int) or trials < 1:
         raise ValueError("試行数は1以上の整数にしてください。")
-    conditions = build_conditions(settings["experiment"])
+    conditions = build_conditions()
     input_tables, schedule_tables, event_tables, run_rows = [], [], [], []
     for trial in range(1, trials + 1):
         seed = settings["seed"] + trial - 1

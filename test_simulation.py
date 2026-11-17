@@ -175,24 +175,20 @@ class SimulationTests(unittest.TestCase):
 class ExperimentTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.settings = make_settings("両方", 2, 3.029126213592233)
+        cls.settings = make_settings(2, 3.029126213592233)
         cls.results = run_experiment(cls.settings)
 
-    def test_condition_counts_and_shared_execution(self):
-        self.assertEqual(len(build_conditions("主実験")), 13)
-        auxiliary = build_conditions("補助実験")
-        self.assertEqual(len(auxiliary), 12)
-        self.assertEqual(len(build_conditions()), 21)
-        manual = auxiliary[auxiliary.method.isin(["fifo", "spt"])]
-        self.assertEqual(set(zip(manual.preparation, manual.capacity)),
-                         {(0, 2), (2, 2), (6, 2), (2, 1), (2, 3)})
-        self.assertEqual(set(manual.duration), {24})
-        self.assertEqual(manual.groupby(["preparation", "capacity"]).size().tolist(), [2] * 5)
+    def test_fixed_conditions_and_single_execution(self):
+        conditions = build_conditions()
+        self.assertEqual(len(conditions), 10)
+        manual = conditions[conditions.method.isin(["fifo", "spt"])]
+        self.assertEqual(set(zip(manual.preparation, manual.capacity)), {(2, 2)})
+        self.assertEqual(set(manual.duration), {12, 24, 48})
+        self.assertEqual(manual.groupby("duration").size().tolist(), [2] * 3)
         runs = self.results["runs"]
-        self.assertEqual(len(runs), 84)
-        self.assertEqual(runs.include_main.sum(), 52)
-        self.assertEqual(runs.include_auxiliary.sum(), 48)
-        self.assertEqual((runs.include_main & runs.include_auxiliary).sum(), 16)
+        self.assertEqual(len(runs), 40)
+        self.assertEqual(len(self.results["summary"]), 20)
+        self.assertEqual(len(runs[runs.method == "normal"]), 4)
         self.assertFalse(runs.duplicated(["trial", "load", "condition"]).any())
 
     def test_input_and_ship_records_are_shared_once(self):
@@ -229,17 +225,21 @@ class ExperimentTests(unittest.TestCase):
                 self.assertEqual(sum(1 for _ in sheet.iter_rows(min_row=2)), len(self.results[
                     {"条件別集計": "summary", "試行別結果": "runs", "船別入力": "inputs",
                      "船別実行": "schedules", "代表試行イベント": "events"}[sheet.title]]))
+            cells = next(book["条件別集計"].iter_rows(min_row=2, max_row=2))
+            numeric_cells = [cell for cell in cells if cell.data_type == "n" and cell.value is not None]
+            self.assertTrue(numeric_cells)
+            self.assertTrue(all(cell.number_format == "General" for cell in numeric_cells))
             book.close()
             saved = json.loads((output / "実験条件.json").read_text())
-            self.assertEqual(saved["実行運用数"], 84)
+            self.assertEqual(saved["実行運用数"], 40)
             with self.assertRaises(ValueError):
                 save_results(self.results, config, output)
 
-    def test_cli_has_three_options_and_ten_trial_default(self):
+    def test_cli_has_two_options_and_ten_trial_default(self):
         args = create_parser().parse_args([])
-        self.assertEqual((args.experiment, args.trials, args.output), ("両方", 10, Path("results")))
+        self.assertEqual((args.trials, args.output), (10, Path("results")))
         with self.assertRaises(ValueError):
-            run_experiment(make_settings("両方", 0, 3))
+            run_experiment(make_settings(0, 3))
 
 
 if __name__ == "__main__":

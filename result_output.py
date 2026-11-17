@@ -6,7 +6,6 @@ import json
 import platform
 from pathlib import Path
 
-import numpy as np
 import openpyxl
 import pandas as pd
 from openpyxl.cell import WriteOnlyCell
@@ -20,7 +19,6 @@ LABELS = {
     "trial": "試行", "seed": "試行シード", "load": "到着頻度倍率",
     "condition": "条件ID", "method": "運用方式", "duration": "停止時間（時間）",
     "preparation": "準備時間（時間）", "capacity": "手動同時上限（隻）",
-    "include_main": "主実験に使用", "include_auxiliary": "補助実験に使用",
     "trials": "試行数", "ships": "船数（隻）",
     "mean_wait": "全船平均待ち（時間）", "max_wait": "最大待ち（時間）",
     "long_mean_wait": "長時間船平均待ち（時間）",
@@ -63,11 +61,7 @@ def make_config(settings, results):
         "モデル": "TOS停止時の限定的手動運用・離散4バース",
         "計算設定": settings,
         "条件数": len(conditions), "実行運用数": len(runs),
-        "主実験使用運用数": int(runs.include_main.sum()) if settings["experiment"] != "補助実験" else 0,
-        "補助実験使用運用数": int(runs.include_auxiliary.sum()) if settings["experiment"] != "主実験" else 0,
         "条件一覧": translated_table(conditions).to_dict("records"),
-        "補助実験設計": "停止24時間。K=2で準備0・2・6時間、準備2時間でK=1・2・3隻。共通1組を除く5組",
-        "補助実験の範囲": "準備と能力は一つずつ変更し、両方を同時に変える影響は評価しない",
         "入力": "到着間隔は指数分布、到着は0以上168時間未満。全船を完了まで処理",
         "荷役": "Gamma(2,2.4)、平均4.8時間。全バース・全運用で同じ。実測値ではない",
         "乱数系列": {"到着": "seed", "荷役": "seed+100000"},
@@ -83,7 +77,8 @@ def make_config(settings, results):
         "手動稼働指標": "手動時間帯と全船荷役区間の重なりの総和。人員・人件費の計測ではない",
         "集計": "試行を等重みで平均。標本SDはddof=1。1試行ならSDは空欄。対応差は同じ船入力",
         "比較": "手動方式同士が中心。停止なしもFIFOのため、そこからの差は純粋な停止損害とは限らない",
-        "基準の再利用": "停止なしは試行・頻度ごとに1回。両実験の共通80運用を再計算しない（10試行時）",
+        "基準の再利用": "停止なしは試行・頻度ごとに1回だけ計算する",
+        "固定条件": "手動方式は準備2時間・同時上限2隻。実測値ではなく研究上の仮定",
         "イベント監査": "代表試行イベントは試行1だけ。船別実行は基準を含む全運用",
         "神戸港参照": "保存済み翌日予定件数から生成頻度の規模を設定。実績寄港数・実荷役時間ではない",
         "依存版": {"python": platform.python_version(),
@@ -98,7 +93,7 @@ def translated_table(table):
     result = table.copy()
     if "method" in result:
         result["method"] = result.method.map(METHOD_LABELS)
-    for column in ("include_main", "include_auxiliary", "long_handling"):
+    for column in ("long_handling",):
         if column in result:
             result[column] = result[column].map({True: "はい", False: "いいえ"})
     missing = set(result) - set(LABELS)
@@ -110,7 +105,7 @@ def translated_table(table):
 
 
 def write_result_sheet(workbook, name, table):
-    """船別明細も逐次保存する。数値は丸めず表示だけ小数3桁にする。"""
+    """船別明細も逐次保存する。数値は丸めず、Excelの標準表示で不要な末尾の0を付けない。"""
     sheet = workbook.create_sheet(name)
     sheet.freeze_panes = "D2"
     sheet.sheet_view.showGridLines = False
@@ -128,8 +123,6 @@ def write_result_sheet(workbook, name, table):
         cells = []
         for value in row:
             cell = WriteOnlyCell(sheet, None if pd.isna(value) else value)
-            if isinstance(value, (float, np.floating)):
-                cell.number_format = "0.000"
             cells.append(cell)
         sheet.append(cells)
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(table.columns))}{len(table) + 1}"
@@ -150,7 +143,7 @@ def save_results(results, config, output):
 
 def print_summary(results, output):
     table = results["summary"]
-    selected = table[(table.method == "spt") & (table.preparation == 2) & (table.capacity == 2)]
+    selected = table[table.method == "spt"]
     columns = ["load", "duration", "mean_wait", "fifo_delta_wait", "fifo_delta_long_wait", "fifo_worse_ships"]
     print(translated_table(selected[columns]).to_string(index=False, float_format=lambda x: f"{x:.3f}"))
     print(f"計算した運用数: {len(results['runs'])}、保存先: {output}")
