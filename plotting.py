@@ -1,135 +1,198 @@
-"""全船ランダム改ざんの方式比較と、説明用試行の運用を描く。"""
+"""主実験・補助実験の比較図と、試行1の実行過程をPNG/PDFへ保存する。"""
+
+import os
+from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", str(Path(__file__).resolve().parent / ".mplconfig"))
 
 import matplotlib
-import numpy as np
-import pandas as pd
-
-from simulation import POLICIES
-
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib import font_manager
+import numpy as np
 
-POLICY_NAMES = {"fixed": "A: Fixed plan", "same_berth": "B: Same berth", "reassign": "C: Berth changes"}
-COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
-PLOT_STYLE = {"figure.titlesize": 11, "axes.titlesize": 10, "legend.fontsize": 8,
-              "grid.alpha": 0.2, "savefig.dpi": 180}
-FIGURE_CAPTIONS = {
-    "01_waiting_comparison": "Figure 1. Mean waiting under normal and tampered arrival reports",
-    "02_queue_example": "Figure 2. Numbers of ships waiting over time",
-    "03_schedule_example": "Figure 3. Normal and tampered handling schedules",
-}
+from simulation import METHOD_LABELS
+
+COLORS = {"normal": "#777777", "wait": "#b54a45", "fifo": "#2675ac", "spt": "#df8a17"}
 
 
-def plot_results(results, output):
-    """正常比較・待ち船数・荷役スケジュールの3図をPNGとPDFで保存する。"""
-    with plt.rc_context(PLOT_STYLE):
-        plot_waiting_comparison(results, output)
-        plot_queue_example(results["schedules"], output)
-        plot_schedule_example(results["schedules"], output)
+def configure_fonts():
+    names = {font.name for font in font_manager.fontManager.ttflist}
+    for name in ("Hiragino Sans", "Noto Sans CJK JP", "IPAexGothic", "Yu Gothic"):
+        if name in names:
+            plt.rcParams["font.family"] = name
+            break
+    plt.rcParams.update({"font.size": 10, "axes.unicode_minus": False, "pdf.fonttype": 42})
 
 
-def save_figure(fig, output, filename, note):
-    """図番号・タイトル・条件を図の下へ置き、PNGとPDFで保存する。"""
-    caption = FIGURE_CAPTIONS[filename] + "\n" + note
-    fig.text(0.5, 0.02, caption, ha="center", va="bottom", fontsize=11)
-    fig.tight_layout(rect=(0, 0.65 / fig.get_figheight(), 1, 1))
-    for suffix in ("png", "pdf"):
-        fig.savefig(output / f"{filename}.{suffix}")
+def save_figure(fig, folder, filename, caption):
+    folder.mkdir(parents=True, exist_ok=True)
+    fig.text(0.5, 0.02, caption, ha="center", va="bottom", fontsize=10)
+    for extension in ("png", "pdf"):
+        fig.savefig(folder / f"{filename}.{extension}", dpi=160)
     plt.close(fig)
 
 
-def plot_waiting_comparison(results, output):
-    """平均待ちと正常差を並べ、右図には各試行の対応差も点で示す。"""
-    data = results["summary"]
-    data = data[data.metric == "average_waiting_time"].set_index("policy").reindex(POLICIES)
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    positions = np.arange(len(POLICIES))
-    axes[0].bar(positions - 0.18, data.normal_mean, width=0.36, label="Normal", color="0.65")
-    axes[0].bar(positions + 0.18, data["mean"], width=0.36, label="Tampered", color="C0")
-    axes[0].set(title="Trial means", ylabel="All ships: mean waiting (hours)", ylim=(0, None))
-    axes[0].legend()
-    runs = results["run_metrics"]
-    for index, policy in enumerate(POLICIES):
-        rows = runs[runs.policy == policy].pivot(index="trial", columns="scenario", values="average_waiting_time")
-        differences = rows.attack - rows.normal
-        # 横方向のずらしは表示用。別の乱数を使わず、試行番号順に並べる。
-        offsets = np.linspace(-0.12, 0.12, len(differences))
-        axes[1].scatter(index + offsets, differences, color=COLORS[policy], alpha=0.65,
-                        label="Individual trials" if index == 0 else None)
-        axes[1].plot(index, differences.mean(), marker="_", markersize=28, color="black",
-                     markeredgewidth=2, label="Mean change" if index == 0 else None)
-    axes[1].axhline(0, color="0.45", linewidth=0.8)
-    axes[1].set(title="Paired changes: tampered minus normal", ylabel="Change in mean waiting (hours)")
-    axes[1].legend()
-    for axis in axes:
-        axis.set_xticks(positions, ["A: Fixed", "B: Same berth", "C: Berth changes"])
-        axis.set_xlabel("Operating policy")
-        axis.set_axisbelow(True)
-        axis.grid(axis="y")
-    save_figure(fig, output, "01_waiting_comparison",
-                f"All ships tampered; independent uniform shifts in {{-8, -4, -2, +2, +4, +8}} h; {int(data.trials.max())} trials")
+def format_axis(ax, xlabel, ylabel):
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.grid(alpha=0.2)
+    ax.set_axisbelow(True)
 
 
-def queue_profile(schedule, end):
-    """到着で+1、荷役開始で-1とし、同時刻をまとめた待ち船数を返す。"""
-    times = np.r_[0.0, schedule.actual_arrival_time, schedule.start_time, end]
-    counts = np.r_[0, np.ones(len(schedule)), -np.ones(len(schedule)), 0]
-    changes = pd.Series(counts, index=times).groupby(level=0).sum().sort_index()
-    return changes.index.to_numpy(), changes.cumsum().to_numpy()
+def draw_duration_comparison(summary, folder):
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    durations = [6, 12, 24, 48]
+    for ax, load in zip(axes, sorted(summary.load.unique())):
+        for method in METHOD_LABELS:
+            group = summary[(summary.load == load) & (summary.method == method)].sort_values("duration")
+            if method == "normal":
+                values = np.repeat(group.iloc[0].mean_wait, len(durations))
+                deviations = np.repeat(group.iloc[0].mean_wait_sd, len(durations))
+            else:
+                values, deviations = group.mean_wait, group.mean_wait_sd
+            ax.errorbar(durations, values, yerr=np.nan_to_num(deviations), marker="o",
+                        capsize=3, label=METHOD_LABELS[method], color=COLORS[method])
+        ax.set_title(f"到着頻度 {load:g}倍")
+        ax.set_xticks(durations)
+        ax.set_ylim(bottom=0)
+        format_axis(ax, "停止時間 D（時間）", "全船平均待ち（時間）")
+    axes[0].legend(fontsize=9)
+    fig.subplots_adjust(left=0.07, right=0.98, top=0.9, bottom=0.2, wspace=0.24)
+    save_figure(fig, folder, "図1_停止時間と全船平均待ち",
+                "図1 停止時間と全船平均待ち（準備2時間・手動上限2隻）\n点は試行平均、誤差棒は試行間標本SD。停止なしは同じ値を各停止時間に表示。")
 
 
-def example_description(schedules):
-    """説明用試行の選定方法を示す。平均的な試行とは説明しない。"""
-    return (f"Illustrative seed {int(schedules.seed.iloc[0])}: largest fixed-policy mean-wait increase; "
-            "all ships tampered")
+def draw_paired_differences(summary, folder):
+    fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+    for ax, load in zip(axes, sorted(summary.load.unique())):
+        group = summary[(summary.load == load) & (summary.method == "spt")].sort_values("duration")
+        for metric, label, color in (
+                ("fifo_delta_wait", "全船", "#2675ac"),
+                ("fifo_delta_long_wait", "長時間船（入力上位25％）", "#b54a45")):
+            ax.errorbar(group.duration, group[metric], yerr=np.nan_to_num(group[f"{metric}_sd"]),
+                        marker="o", capsize=3, label=label, color=color)
+        ax.axhline(0, color="black", linewidth=0.8)
+        ax.set_title(f"到着頻度 {load:g}倍")
+        ax.set_xticks([6, 12, 24, 48])
+        format_axis(ax, "停止時間 D（時間）", "短い荷役優先 − 手動FIFO（時間）")
+    axes[0].legend(fontsize=9)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.2, wspace=0.28)
+    save_figure(fig, folder, "図2_手動方式の平均待ちの差",
+                "図2 同じ入力・同じ能力での手動方式の差（準備2時間・上限2隻）\n点は試行ごとの対応差の平均、誤差棒は対応差の標本SD。負は短い荷役優先の待ちが小さい。")
 
 
-def plot_queue_example(schedules, output):
-    """同じ試行の正常と攻撃時の待ち船数を3方式で並べる。"""
-    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True, sharey=True)
-    end = schedules.completion_time.max()
-    for axis, policy in zip(axes, POLICIES):
-        for scenario, label, color in [("normal", "Normal", "0.45"), ("attack", "Tampered", COLORS[policy])]:
-            rows = schedules[(schedules.policy == policy) & ((schedules.scenario == "normal") if scenario == "normal"
-                                                          else (schedules.scenario != "normal"))]
-            times, counts = queue_profile(rows, end)
-            axis.step(times, counts, where="post", label=label, color=color,
-                      linestyle="--" if scenario == "normal" else "-")
-        axis.set(title=POLICY_NAMES[policy], ylabel="Ships waiting", ylim=(0, None))
-        axis.grid(axis="y")
-        axis.legend()
-    axes[-1].set(xlabel="Hours since beginning", xlim=(0, end))
-    save_figure(fig, output, "02_queue_example", example_description(schedules))
+def draw_example(results, folder, outage_start):
+    schedules, events = results["schedules"], results["events"]
+    chosen = schedules[(schedules.trial == 1) & (schedules.load == schedules.load.max())]
+    chosen = chosen[(chosen.method == "normal") | ((chosen.duration == 24)
+                    & ((chosen.method == "wait") | ((chosen.preparation == 2) & (chosen.capacity == 2))))]
+    example_events = events[(events.trial == 1) & (events.load == chosen.load.max())
+                            & events.condition.isin(chosen.condition)]
+    waiting_limit = example_events.observed_waiting.max() + 1
+    fig, axes = plt.subplots(4, 2, figsize=(15, 11))
+    for row, method in enumerate(METHOD_LABELS):
+        group = chosen[chosen.method == method]
+        condition = group.iloc[0].condition
+        audit = events[(events.trial == 1) & (events.load == chosen.load.max())
+                       & (events.condition == condition)]
+        queue_ax, berth_ax = axes[row]
+        queue_ax.step(audit.time, audit.observed_waiting, where="post", color=COLORS[method])
+        for ship in group.itertuples():
+            color = COLORS[method] if ship.phase == "手動" else "#73869a"
+            berth_ax.broken_barh([(ship.start, ship.handling)], (ship.berth - 0.35, 0.7),
+                                facecolors=color, edgecolors="white", linewidth=0.4)
+        for ax in (queue_ax, berth_ax):
+            ax.axvspan(outage_start, outage_start + 24, color="#b54a45", alpha=0.1)
+            ax.axvline(outage_start + 2, color="#777777", linestyle=":", linewidth=0.8)
+            ax.set_xlim(0, max(168, chosen.completion.max()))
+        queue_ax.set_title(METHOD_LABELS[method])
+        berth_ax.set_title(METHOD_LABELS[method])
+        queue_ax.set_ylim(0, waiting_limit)
+        berth_ax.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
+        format_axis(queue_ax, "時刻（時間）", "開始処理後の待機船（隻）")
+        format_axis(berth_ax, "時刻（時間）", "荷役中のバース")
+    fig.subplots_adjust(left=0.06, right=0.98, top=0.96, bottom=0.11, hspace=0.7, wspace=0.18)
+    save_figure(fig, folder, "図3_代表試行の待機と荷役スケジュール",
+                "図3 試行1（seed42）・到着頻度2倍・停止24時間の実行過程\n淡赤は停止48〜72時間、点線は準備完了50時間。右の色付き区間は手動中に開始した荷役。")
 
 
-def draw_ship_schedule(axis, schedule, shifts, start, end):
-    """範囲と重なる荷役を描き、早い偽申告を赤、遅い偽申告を青で示す。"""
-    for row in schedule.itertuples():
-        if row.completion_time <= start or row.start_time >= end:
-            continue
-        berth = int(row.assigned_berth[1:])
-        axis.barh(berth, row.handling_time, left=row.start_time, height=0.65,
-                  color="C3" if shifts[row.ship] < 0 else "C0", edgecolor="white")
-        visible_start = max(start, row.start_time)
-        if min(end, row.completion_time) - visible_start > 1:
-            axis.text(visible_start + 0.1, berth, row.ship, va="center", fontsize=7, clip_on=True)
+def draw_auxiliary_comparison(summary, folder, variable, number, filename):
+    """準備又は能力を一つだけ変え、全船・長時間船の待ちを並べる。"""
+    if variable == "preparation":
+        selected = summary[(summary.capacity == 2) | summary.method.isin(["normal", "wait"])]
+        xlabel, fixed = "準備時間 s（時間）", "手動上限2隻"
+        values = [0, 2, 6]
+    else:
+        selected = summary[(summary.preparation == 2) | summary.method.isin(["normal", "wait"])]
+        xlabel, fixed = "手動同時上限 K（隻）", "準備2時間"
+        values = [1, 2, 3]
+    metrics = [("mean_wait", "全船平均待ち"), ("long_mean_wait", "長時間船平均待ち")]
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    for row, load in enumerate(sorted(selected.load.unique())):
+        for column, (metric, label) in enumerate(metrics):
+            ax = axes[row, column]
+            for method in ("fifo", "spt"):
+                group = selected[(selected.load == load) & (selected.method == method)].sort_values(variable)
+                ax.errorbar(group[variable], group[metric], yerr=np.nan_to_num(group[f"{metric}_sd"]),
+                            marker="o", capsize=3, color=COLORS[method], label=METHOD_LABELS[method])
+            for method, style in (("normal", ":"), ("wait", "--")):
+                reference = selected[(selected.load == load) & (selected.method == method)].iloc[0]
+                ax.axhline(reference[metric], color=COLORS[method], linestyle=style,
+                           label=METHOD_LABELS[method])
+            ax.set_title(f"到着頻度{load:g}倍・{label}")
+            ax.set_xticks(values)
+            ax.set_ylim(bottom=0)
+            format_axis(ax, xlabel, label + "（時間）")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=4, fontsize=9)
+    fig.subplots_adjust(left=0.07, right=0.98, top=0.91, bottom=0.14, hspace=0.4, wspace=0.23)
+    save_figure(fig, folder, filename,
+                f"図{number} {xlabel.split(' ')[0]}の影響（停止24時間・{fixed}）\n点は試行平均、誤差棒は試行間標本SD。水平線は停止なし・復旧待ちの平均。")
 
 
-def plot_schedule_example(schedules, output):
-    """固定方式の船別待ち増分が最大の船の周辺を6段で描く。"""
-    attacked = schedules[(schedules.policy == "fixed") & (schedules.scenario != "normal")].set_index("ship")
-    normal = schedules[(schedules.policy == "fixed") & (schedules.scenario == "normal")].set_index("ship")
-    changes = attacked.waiting_time - normal.waiting_time
-    center = attacked.loc[changes.idxmax(), "actual_arrival_time"]
-    start, end = max(0, center - 12), center + 36
-    shifts = attacked.reported_arrival_time - attacked.actual_arrival_time
-    fig, axes = plt.subplots(6, 1, figsize=(12, 11), sharex=True)
-    for axis, (policy, scenario) in zip(axes, [(p, s) for p in POLICIES for s in ("normal", "attack")]):
-        rows = schedules[(schedules.policy == policy) & ((schedules.scenario == "normal") if scenario == "normal"
-                                                       else (schedules.scenario != "normal"))]
-        draw_ship_schedule(axis, rows, shifts, start, end)
-        axis.set(title=POLICY_NAMES[policy] + (": Normal" if scenario == "normal" else ": Tampered"))
-        axis.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
-        axis.grid(axis="x")
-    axes[-1].set(xlim=(start, end), xlabel="Hours since beginning; colors show attack direction (also in normal panels): red = earlier, blue = later")
-    save_figure(fig, output, "03_schedule_example", example_description(schedules))
+def draw_auxiliary_differences(summary, folder):
+    """5組の対応差を、準備の確認・能力の確認に分けて示す。"""
+    selected = summary[summary.method == "spt"]
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8))
+    for row, load in enumerate(sorted(selected.load.unique())):
+        for column, variable in enumerate(("preparation", "capacity")):
+            ax = axes[row, column]
+            if variable == "preparation":
+                group = selected[(selected.load == load) & (selected.capacity == 2)]
+                xlabel, fixed, values = "準備時間 s（時間）", "上限2隻固定", [0, 2, 6]
+            else:
+                group = selected[(selected.load == load) & (selected.preparation == 2)]
+                xlabel, fixed, values = "手動同時上限 K（隻）", "準備2時間固定", [1, 2, 3]
+            group = group.sort_values(variable)
+            for metric, label, color in (
+                    ("fifo_delta_wait", "全船", "#2675ac"),
+                    ("fifo_delta_long_wait", "長時間船（入力上位25％）", "#b54a45")):
+                ax.errorbar(group[variable], group[metric], yerr=np.nan_to_num(group[f"{metric}_sd"]),
+                            marker="o", capsize=3, color=color, label=label)
+            ax.axhline(0, color="black", linewidth=0.8)
+            ax.set_title(f"到着頻度{load:g}倍・{fixed}")
+            ax.set_xticks(values)
+            format_axis(ax, xlabel, "短い荷役優先 − 手動FIFO（時間）")
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=2, fontsize=9)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.91, bottom=0.14, hspace=0.4, wspace=0.25)
+    save_figure(fig, folder, "図6_補助実験の手動方式の差",
+                "図6 準備・能力を一つずつ変えた手動方式の対応差（停止24時間）\n点は対応差の試行平均、誤差棒は対応差の標本SD。負は短い荷役優先の待ちが小さい。")
+
+
+def plot_results(results, output, settings):
+    configure_fonts()
+    summary = results["summary"]
+    if settings["experiment"] != "補助実験":
+        main = summary[summary.include_main]
+        folder = Path(output) / "主実験"
+        draw_duration_comparison(main, folder)
+        draw_paired_differences(main, folder)
+        draw_example(results, folder, settings["outage_start"])
+    if settings["experiment"] != "主実験":
+        auxiliary = summary[summary.include_auxiliary]
+        folder = Path(output) / "補助実験"
+        draw_auxiliary_comparison(auxiliary, folder, "preparation", 4, "図4_準備時間と待ち時間")
+        draw_auxiliary_comparison(auxiliary, folder, "capacity", 5, "図5_手動同時上限と待ち時間")
+        draw_auxiliary_differences(auxiliary, folder)
