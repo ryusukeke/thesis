@@ -34,22 +34,22 @@ METRIC_LABELS = {
     "average_turnaround_time": "全船の平均在港時間（時間）",
     "completion_time": "最終荷役完了時刻（開始からの時間）",
     "berth_changes": "計画からバースを変更した船数（隻）",
-    "increased_waiting_ships": "正常時より待ちが増えた全船数（隻）",
+    "increased_waiting_ships": "ずれなし条件より待ちが増えた全船数（隻）",
 }
 EXCEL_COLUMNS = {
-    "scenario": "申告条件", "policy": "運用方式", "metric": "評価指標", "trials": "試行数",
-    "mean": "改ざん時の指標値（試行平均）", "std": "改ざん時の標準偏差",
-    "normal_mean": "正常時の指標値（試行平均）", "mean_difference": "正常時との差（試行平均）",
-    "std_difference": "正常時との差の標準偏差",
-    "min_difference": "正常時との差の最小値", "max_difference": "正常時との差の最大値",
-    "increased_trials": "正常時より増加した試行数", "decreased_trials": "正常時より減少した試行数",
-    "unchanged_trials": "正常時と同じ試行数",
-    "trial": "試行番号", "seed": "乱数シード", "attack_seed": "改ざん用シード",
+    "scenario": "予定情報の条件", "policy": "運用方式", "metric": "評価指標", "trials": "試行数",
+    "mean": "予定ずれあり条件の指標値（試行平均）", "std": "予定ずれあり条件の標準偏差",
+    "normal_mean": "ずれなし条件の指標値（試行平均）", "mean_difference": "ずれなし条件との差（試行平均）",
+    "std_difference": "ずれなし条件との差の標準偏差",
+    "min_difference": "ずれなし条件との差の最小値", "max_difference": "ずれなし条件との差の最大値",
+    "increased_trials": "ずれなし条件より増加した試行数", "decreased_trials": "ずれなし条件より減少した試行数",
+    "unchanged_trials": "ずれなし条件と同じ試行数",
+    "trial": "試行番号", "seed": "乱数シード", "attack_seed": "予定ずれ用シード",
     "num_ships": "全船数（隻）", **METRIC_LABELS,
     "ship": "船ID", "actual_arrival_time": "実到着時刻（時間）",
-    "reported_arrival_time": "正常時の申告到着時刻（時間）",
+    "reported_arrival_time": "ずれなし条件の予定到着時刻（時間）",
     "requested_report_shift": "抽選した申告変更量（時間）",
-    "attacked_reported_arrival_time": "改ざん後の申告到着時刻（時間）",
+    "attacked_reported_arrival_time": "予定ずれありの予定到着時刻（時間）",
     "actual_report_shift": "適用後の申告変更量（時間）",
     "planned_berth": "計画バース", "assigned_berth": "実行バース",
     "planned_start_time": "計画荷役開始時刻（時間）", "start_time": "実荷役開始時刻（時間）",
@@ -64,13 +64,13 @@ EXCEL_COLUMNS = {
     **{f"handling_time_B{berth}": f"B{berth}の荷役時間（時間）" for berth in range(1, NUM_BERTHS + 1)},
 }
 EXCEL_VALUES = {
-    "scenario": {"normal": "正常", "attack": "全船ランダム改ざん"},
+    "scenario": {"normal": "ずれなし", "attack": "予定ずれあり"},
     "policy": {"fixed": "固定", "same_berth": "同じバース内調整", "reassign": "バース変更"},
     "metric": METRIC_LABELS,
 }
 SUMMARY_OVERVIEW_COLUMNS = {
-    "policy": "運用方式", "normal_mean": "正常時の平均待ち（時間）",
-    "mean": "改ざん後の平均待ち（時間）", "mean_difference": "待ち時間の増減（時間）",
+    "policy": "運用方式", "normal_mean": "ずれなし条件の平均待ち（時間）",
+    "mean": "予定ずれありの平均待ち（時間）", "mean_difference": "待ち時間の増減（時間）",
 }
 
 
@@ -92,6 +92,7 @@ def create_config(args, results, interval):
         max_waiting_hours=("max_waiting_time", "max"),
     )
     return {
+        "study_scope": "arrival schedule deviation; cyber tampering is one possible cause; causes are not simulated separately",
         "model_version": "discrete_4berth_all_ships_random_v8",
         "trials_per_cell": args.trials, "first_seed": args.seed,
         "last_seed": args.seed + args.trials - 1,
@@ -207,10 +208,10 @@ def save_waiting_reason_sheet(writer, results):
         3: "分類の優先順：全バース使用中、指定バース使用中、計画順番待ち、計画開始待ち。重複して数えません。",
         4: "競合＝到着・完了時点で、開始前の到着済み待ち隻数＞空きバース数＞0。バース変更のみ集計。",
         5: "他2方式の競合欄は対象外で空欄。時間の内訳はその時間帯の状態で、原因の寄与率ではありません。",
-        6: "表1 正常・改ざん後の待ち時間の内訳",
+        6: "表1 ずれなし・予定ずれありの待ち時間の内訳",
         detail_header - 3: "計画順番待ち＝指定先は空きだが先行船が未完了。計画開始待ち＝先行船も完了し、計画開始前。",
         detail_header - 2: "表2 船ごとの待ち時間の内訳",
-        detail_header - 1: "1行は1試行・申告条件・方式・船の結果。競合参加回数は同じ競合に参加した各船へ数えます。",
+        detail_header - 1: "1行は1試行・予定情報の条件・方式・船の結果。競合参加回数は同じ競合に参加した各船へ数えます。",
     }
     for row, value in notes.items():
         cell = sheet.cell(row, 1, value)
@@ -234,7 +235,7 @@ def save_waiting_reason_sheet(writer, results):
 
 
 def create_summary_overview(summary):
-    """平均待ちの正常値・改ざん後・増減を3方式だけの一覧にする。"""
+    """平均待ちのずれなし・予定ずれあり・増減を3方式だけの一覧にする。"""
     overview = summary.loc[summary.metric == "average_waiting_time", list(SUMMARY_OVERVIEW_COLUMNS)]
     present_policies = [policy for policy in POLICIES if policy in set(overview.policy)]
     return overview.set_index("policy").reindex(present_policies).reset_index()
@@ -258,13 +259,13 @@ def save_summary_sheet(writer, summary):
 def format_summary_sheet(sheet, overview, summary, detail_header):
     """条件と読み方を表の上へ置き、待ちの増減を色で見分けやすくする。"""
     notes = {
-        1: "全船ランダム改ざん　運用方式の比較",
+        1: "全船の予定ずれ　運用方式の比較",
         2: "全船の申告を変更。各船で−8・−4・−2・＋2・＋4・＋8時間から等確率で抽選。",
-        3: "増減＝改ざん後−同じ方式の正常時。＋は待ちが増加、−は減少。",
-        4: f"{int(summary.trials.max())}試行の平均。時間は船1隻あたり。実到着・荷役条件は正常時と同じ。",
+        3: "増減＝予定ずれあり−同じ方式のずれなし条件。＋は待ちが増加、−は減少。",
+        4: f"{int(summary.trials.max())}試行の平均。時間は船1隻あたり。実到着・荷役条件はずれなし条件と同じ。",
         6: "表1 全船の平均待ち時間の比較",
         detail_header - 3: "表2 全8指標の詳細集計",
-        detail_header - 2: "標準偏差は試行間のばらつき。正常差は同じ試行・同じ方式の値を引いて集計。",
+        detail_header - 2: "標準偏差は試行間のばらつき。ずれなしとの差は同じ試行・同じ方式の値を引いて集計。",
     }
     for row, text in notes.items():
         cell = sheet.cell(row, 1, text)
@@ -363,12 +364,12 @@ def save_results(results, config, output):
 
 
 def print_summary(results, interval, output):
-    """全船ランダム改ざんの件数と、3方式の平均待ちを表示する。"""
+    """全船の予定ずれの件数と、3方式の平均待ちを表示する。"""
     runs = results["run_metrics"]
-    print(f"{runs.trial.nunique()}試行、正常運用{int((runs.scenario == 'normal').sum())}ケース、"
-          f"全船改ざん運用{int((runs.scenario == 'attack').sum())}ケース。")
+    print(f"{runs.trial.nunique()}試行、ずれなし運用{int((runs.scenario == 'normal').sum())}ケース、"
+          f"全船の予定ずれ運用{int((runs.scenario == 'attack').sum())}ケース。")
     print("各船の申告変更量は−8・−4・−2・＋2・＋4・＋8時間から独立に等確率で抽選。")
-    print(f"実到着の基準平均間隔：{interval:.6f}時間。実到着・荷役条件は正常時と共通です。")
+    print(f"実到着の基準平均間隔：{interval:.6f}時間。実到着・荷役条件はずれなし条件と共通です。")
     print(translate_excel_table(create_summary_overview(results["summary"]), SUMMARY_OVERVIEW_COLUMNS)
           .round(4).to_string(index=False))
     print("保存なし" if output is None else f"保存先：{output.resolve()}")

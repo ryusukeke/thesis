@@ -1,4 +1,5 @@
 {
+  "study_scope": "arrival schedule deviation; cyber tampering is one possible cause; causes are not simulated separately",
   "model_version": "discrete_4berth_all_ships_random_v8",
   "trials_per_cell": 10,
   "first_seed": 42,
@@ -106,11 +107,11 @@
     "detail_rows": 24
   },
   "code_sha256": {
-    "simulation.py": "6ea0dccc69667f3764daf85bb723928bc979098a042c673d7973da54a91be110",
-    "main.py": "9347fed2f9910cd576c162ae10fd48b320914ad5f43d2bced7399b8bde700d9f",
-    "cli.py": "a674c4fc91913fc0b4cb9ad6f4891dc564857554f8f1c57a691e0aa45f4db1f3",
-    "result_output.py": "2108f48f50585efa698a7f98a7240d484f418fa7cf8e873a0c4e9823d9892ec9",
-    "plotting.py": "3b07ca99f4055bafea1f59635c032a8a4d2aa0c3e62be64d195675497ff42fc0"
+    "simulation.py": "91587d110b24bff117c148f37f51b0dda86ad504936fa857b5b72a7f200b7231",
+    "main.py": "a1df853fa54121bcc7a88cbab9f04c738f3ce72e0293027d7d978be05d58f7d2",
+    "cli.py": "be56a2e5ccab9ce25d0b999cf540dddfb83965a7406bfd6680b46595def74c22",
+    "result_output.py": "26c618884898463ff145cf4dde83889fae451fccc0af020f95152ab53fdcb7c9",
+    "plotting.py": "e7e06d59819eb50178f4b94af53865fa227e361e46d31ce5b28aaf77bf6c57b0"
   },
   "reference_sha256": {
     "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",

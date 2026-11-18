@@ -1,4 +1,4 @@
-"""船舶データの生成、到着時刻の改ざん、バース割当、比較実験の計算を行う。"""
+"""船舶データの生成、到着時刻の予定ずれ、バース割当、比較実験の計算を行う。"""
 
 import numpy as np
 import pandas as pd
@@ -32,7 +32,7 @@ def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
     """実到着、基準荷役時間、荷物の最寄りバースを乱数で作る。
 
     荷役係数は1 + 0.1 × 最寄りバースからの番号の差。速度や実距離は扱わない。
-    正常申告は実到着と同じにし、計画作成後も実到着を動かさない。
+    ずれなしの予定情報は実到着と同じにし、計画作成後も実到着を動かさない。
     """
     rng = np.random.default_rng(seed)
     # 固定隻数は従来の計算を保つ。期間指定では、期間内の到着を順に作る。
@@ -75,7 +75,7 @@ def apply_attack(data, report_shifts):
     """
     attacked = data.copy(deep=True) # deep=trueにすることでデータをコピー元と共有しない
     if not set(report_shifts).issubset(set(data["ship"])):
-        raise ValueError("改ざん対象に存在しない船が含まれています。")
+        raise ValueError("予定ずれ対象に存在しない船が含まれています。")
     if any(not np.isfinite(value) for value in report_shifts.values()):
         raise ValueError("申告の変更量は有限の値にしてください。")
     target = attacked["ship"].isin(report_shifts)
@@ -90,7 +90,7 @@ def create_plan(data):
     """申告時刻順で全船のバース・荷役順・計画時刻を決める。
 
     実到着時刻は表に記録するが、計画の判断には使わない。
-    正常条件でも改ざん条件でも、この同じ計算を使う。
+    ずれなし条件でも予定ずれ条件でも、この同じ計算を使う。
     """
     berth_columns = [c for c in data.columns if c.startswith("handling_time_B")]
     planned_available = np.zeros(len(berth_columns))
@@ -209,7 +209,7 @@ def execute_adjusted_plan(data, plan, policy="reassign"):
 
 
 def calculate_metrics(schedule, normal=None):
-    """全船の待ち・在港時間と、同じ方式の正常時より待ちが増えた隻数を返す。"""
+    """全船の待ち・在港時間と、同じ方式のずれなし条件より待ちが増えた隻数を返す。"""
     changes = pd.Series(0.0, index=schedule.index)
     if normal is not None:
         baseline = schedule["ship"].map(normal.set_index("ship")["waiting_time"])
@@ -287,7 +287,7 @@ def count_start_competitions(schedule, num_berths):
 
 
 def summarize_results(run_metrics):
-    """試行・方式が同じ正常値との差を求め、方式ごとに10試行を集計する。"""
+    """試行・方式が同じずれなしの値との差を求め、方式ごとに10試行を集計する。"""
     normal = run_metrics[run_metrics.scenario == "normal"].set_index(["trial", "policy"])
     attacks = run_metrics[run_metrics.scenario == "attack"]
     joined = attacks.join(normal[list(METRICS)], on=["trial", "policy"], rsuffix="_normal")
@@ -324,7 +324,7 @@ def create_report_shifts(data, seed):
 
 
 def calculate_plan_diagnostics(data, normal_plan, duration_hours):
-    """期間内の正常計画のバース使用割合と、到着・完了の範囲をまとめる。"""
+    """期間内のずれなしの計画のバース使用割合と、到着・完了の範囲をまとめる。"""
     occupied = normal_plan["handling_time"].sum()
     horizon = normal_plan["planned_completion_time"].max()
     if duration_hours is not None:
@@ -340,7 +340,7 @@ def calculate_plan_diagnostics(data, normal_plan, duration_hours):
 
 
 def run_comparison_cases(data, attacked, shared, policies):
-    """正常計画と改ざん後の計画を各1回作り、同じ船データで3方式を比較する。"""
+    """ずれなしの計画と予定ずれありの計画を各1回作り、同じ船データで3方式を比較する。"""
     normal_plan = create_plan(data)
     attacked_plan = create_plan(attacked)
     schedules, metrics, waiting_details = [], [], []
@@ -368,7 +368,7 @@ def run_comparison_cases(data, attacked, shared, policies):
 
 
 def example_wait_increase(metrics, policy):
-    """説明用の試行を選ぶため、その方式の正常時からの平均待ち増分を求める。"""
+    """説明用の試行を選ぶため、その方式のずれなし条件からの平均待ち増分を求める。"""
     rows = pd.DataFrame(metrics)
     rows = rows[rows.policy == policy].set_index("scenario")
     return rows.loc["attack", "average_waiting_time"] - rows.loc["normal", "average_waiting_time"]
@@ -377,10 +377,10 @@ def example_wait_increase(metrics, policy):
 def run_experiment(trials=10, num_ships=10, num_berths=NUM_BERTHS, seed=42,
                    policies=POLICIES, duration_hours=DURATION_HOURS,
                    mean_interarrival_time=3.0, keep_schedules=False):
-    """全船の申告をランダムに変え、正常時との3方式の対応比較を行う。
+    """全船の申告をランダムに変え、ずれなし条件との3方式の対応比較を行う。
 
     各船の変更量は−8・−4・−2・＋2・＋4・＋8時間から独立に等確率で選ぶ。
-    実到着・荷役条件と抽選した改ざん内容は、同じ試行の全方式で共有する。
+    実到着・荷役条件と抽選した予定ずれ内容は、同じ試行の全方式で共有する。
     keep_schedules=Falseでは、先頭方式の平均待ち増分が最大の1試行を図用に保持する。
     """
     if trials < 1 or num_berths < 1 or seed < 0 or (duration_hours is None and num_ships < 2):

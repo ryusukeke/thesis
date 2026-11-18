@@ -392,7 +392,7 @@ class SimulationTests(unittest.TestCase):
                 self.assertEqual(sheet.auto_filter.ref, sheet.dimensions)
                 self.assertFalse(sheet.sheet_view.showGridLines)
                 headers = {cell.value: cell.column for cell in sheet[1]}
-                for label in ['申告変更幅（時間）', '試行数', '試行番号', '改ざん対象隻数', '全船数（隻）']:
+                for label in ['申告変更幅（時間）', '試行数', '試行番号', '予定ずれ対象隻数', '全船数（隻）']:
                     if label in headers:
                         self.assertTrue(all(cell[0].number_format == '0' for cell in
                                             sheet.iter_rows(min_row=2, min_col=headers[label], max_col=headers[label])))
@@ -411,7 +411,7 @@ class SimulationTests(unittest.TestCase):
             saved_ships = pd.read_excel(output / 'results.xlsx', sheet_name='船別データ')
             self.assertEqual(saved_ships['船ID'].nunique(), len(results['ship_data']))
             self.assertIn('実到着時刻（時間）', saved_ships)
-            self.assertIn('正常時の申告到着時刻（時間）', saved_ships)
+            self.assertIn('ずれなし条件の予定到着時刻（時間）', saved_ships)
             for berth in range(1, 5):
                 self.assertIn(f'B{berth}の荷役時間（時間）', saved_ships)
             restored = saved_ships.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
@@ -421,7 +421,7 @@ class SimulationTests(unittest.TestCase):
             columns = ['全バース使用中の待ち（時間）', '指定バース使用中・別バース空きの待ち（時間）',
                        '計画順番待ち（時間）', '計画開始待ち（時間）']
             np.testing.assert_allclose(reasons[columns].sum(axis=1), reasons['待ち時間（時間）'])
-            self.assertEqual(reasons[['試行番号', '申告条件', '運用方式', '船ID']].duplicated().sum(), 0)
+            self.assertEqual(reasons[['試行番号', '予定情報の条件', '運用方式', '船ID']].duplicated().sum(), 0)
             self.assertTrue(reasons.loc[reasons['運用方式'] != 'バース変更', '開始枠の競合参加回数（回）'].isna().all())
             for name, sheet_name in [('run_metrics', '試行別結果'), ('summary', '条件別集計')]:
                 header = 16 if name == 'summary' else 0
@@ -431,8 +431,8 @@ class SimulationTests(unittest.TestCase):
                 if name == 'summary':
                     self.assertIn('全船の平均待ち時間（時間）', saved['評価指標'].values)
                 else:
-                    self.assertIn('全船ランダム改ざん', saved['申告条件'].values)
-                    self.assertIn('正常', saved['申告条件'].values)
+                    self.assertIn('予定ずれあり', saved['予定情報の条件'].values)
+                    self.assertIn('ずれなし', saved['予定情報の条件'].values)
                 saved = saved.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
                 for column, labels in EXCEL_VALUES.items():
                     if column in saved:

@@ -1,4 +1,4 @@
-"""全船ランダム改ざんの方式比較と、説明用試行の運用を描く。"""
+"""全船の予定ずれの方式比較と、説明用試行の運用を描く。"""
 
 import matplotlib
 import numpy as np
@@ -14,14 +14,14 @@ COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
 PLOT_STYLE = {"figure.titlesize": 11, "axes.titlesize": 10, "legend.fontsize": 8,
               "grid.alpha": 0.2, "savefig.dpi": 180}
 FIGURE_CAPTIONS = {
-    "01_waiting_comparison": "Figure 1. Mean waiting under normal and tampered arrival reports",
+    "01_waiting_comparison": "Figure 1. Mean waiting with matched and shifted ETAs",
     "02_queue_example": "Figure 2. Numbers of ships waiting over time",
-    "03_schedule_example": "Figure 3. Normal and tampered handling schedules",
+    "03_schedule_example": "Figure 3. Matched and shifted handling schedules",
 }
 
 
 def plot_results(results, output):
-    """正常比較・待ち船数・荷役スケジュールの3図をPNGとPDFで保存する。"""
+    """ずれなし比較・待ち船数・荷役スケジュールの3図をPNGとPDFで保存する。"""
     with plt.rc_context(PLOT_STYLE):
         plot_waiting_comparison(results, output)
         plot_queue_example(results["schedules"], output)
@@ -39,13 +39,13 @@ def save_figure(fig, output, filename, note):
 
 
 def plot_waiting_comparison(results, output):
-    """平均待ちと正常差を並べ、右図には各試行の対応差も点で示す。"""
+    """平均待ちとずれなしとの差を並べ、右図には各試行の対応差も点で示す。"""
     data = results["summary"]
     data = data[data.metric == "average_waiting_time"].set_index("policy").reindex(POLICIES)
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
     positions = np.arange(len(POLICIES))
-    axes[0].bar(positions - 0.18, data.normal_mean, width=0.36, label="Normal", color="0.65")
-    axes[0].bar(positions + 0.18, data["mean"], width=0.36, label="Tampered", color="C0")
+    axes[0].bar(positions - 0.18, data.normal_mean, width=0.36, label="Matched ETA", color="0.65")
+    axes[0].bar(positions + 0.18, data["mean"], width=0.36, label="Shifted ETA", color="C0")
     axes[0].set(title="Trial means", ylabel="All ships: mean waiting (hours)", ylim=(0, None))
     axes[0].legend()
     runs = results["run_metrics"]
@@ -59,7 +59,7 @@ def plot_waiting_comparison(results, output):
         axes[1].plot(index, differences.mean(), marker="_", markersize=28, color="black",
                      markeredgewidth=2, label="Mean change" if index == 0 else None)
     axes[1].axhline(0, color="0.45", linewidth=0.8)
-    axes[1].set(title="Paired changes: tampered minus normal", ylabel="Change in mean waiting (hours)")
+    axes[1].set(title="Paired changes: shifted ETA minus matched ETA", ylabel="Change in mean waiting (hours)")
     axes[1].legend()
     for axis in axes:
         axis.set_xticks(positions, ["A: Fixed", "B: Same berth", "C: Berth changes"])
@@ -67,7 +67,7 @@ def plot_waiting_comparison(results, output):
         axis.set_axisbelow(True)
         axis.grid(axis="y")
     save_figure(fig, output, "01_waiting_comparison",
-                f"All ships tampered; independent uniform shifts in {{-8, -4, -2, +2, +4, +8}} h; {int(data.trials.max())} trials")
+                f"All planned arrivals shifted; independent uniform shifts in {{-8, -4, -2, +2, +4, +8}} h; {int(data.trials.max())} trials")
 
 
 def queue_profile(schedule, end):
@@ -81,15 +81,15 @@ def queue_profile(schedule, end):
 def example_description(schedules):
     """説明用試行の選定方法を示す。平均的な試行とは説明しない。"""
     return (f"Illustrative seed {int(schedules.seed.iloc[0])}: largest fixed-policy mean-wait increase; "
-            "all ships tampered")
+            "all planned arrivals shifted")
 
 
 def plot_queue_example(schedules, output):
-    """同じ試行の正常と攻撃時の待ち船数を3方式で並べる。"""
+    """同じ試行のずれなしと予定ずれあり条件の待ち船数を3方式で並べる。"""
     fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True, sharey=True)
     end = schedules.completion_time.max()
     for axis, policy in zip(axes, POLICIES):
-        for scenario, label, color in [("normal", "Normal", "0.45"), ("attack", "Tampered", COLORS[policy])]:
+        for scenario, label, color in [("normal", "Matched ETA", "0.45"), ("attack", "Shifted ETA", COLORS[policy])]:
             rows = schedules[(schedules.policy == policy) & ((schedules.scenario == "normal") if scenario == "normal"
                                                           else (schedules.scenario != "normal"))]
             times, counts = queue_profile(rows, end)
@@ -103,7 +103,7 @@ def plot_queue_example(schedules, output):
 
 
 def draw_ship_schedule(axis, schedule, shifts, start, end):
-    """範囲と重なる荷役を描き、早い偽申告を赤、遅い偽申告を青で示す。"""
+    """範囲と重なる荷役を描き、実際より早い予定情報を赤、実際より遅い予定情報を青で示す。"""
     for row in schedule.itertuples():
         if row.completion_time <= start or row.start_time >= end:
             continue
@@ -128,8 +128,8 @@ def plot_schedule_example(schedules, output):
         rows = schedules[(schedules.policy == policy) & ((schedules.scenario == "normal") if scenario == "normal"
                                                        else (schedules.scenario != "normal"))]
         draw_ship_schedule(axis, rows, shifts, start, end)
-        axis.set(title=POLICY_NAMES[policy] + (": Normal" if scenario == "normal" else ": Tampered"))
+        axis.set(title=POLICY_NAMES[policy] + (": Matched ETA" if scenario == "normal" else ": Shifted ETA"))
         axis.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
         axis.grid(axis="x")
-    axes[-1].set(xlim=(start, end), xlabel="Hours since beginning; colors show attack direction (also in normal panels): red = earlier, blue = later")
+    axes[-1].set(xlim=(start, end), xlabel="Hours since beginning; colors show ETA shift direction (also in matched panels): red = earlier, blue = later")
     save_figure(fig, output, "03_schedule_example", example_description(schedules))
