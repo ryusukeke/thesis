@@ -9,7 +9,7 @@ def create_parser():
     parser = argparse.ArgumentParser(
         description="4バースの到着予定と実際のずれの比較実験を実行し、設定・Excel・論文用グラフを保存する。"
     )
-    parser.add_argument("--trials", type=int, default=10)
+    parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output", type=Path, default=Path("results"))
     parser.add_argument("--no-plot", action="store_true")
