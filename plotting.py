@@ -21,7 +21,7 @@ FIGURE_CAPTIONS = {
 
 
 def plot_results(results, output):
-    """ずれなし比較・待ち船数・荷役スケジュールの3図をPNGとPDFで保存する。"""
+    """ずれなし比較・待ち船数・荷役スケジュールの3図をPNGで保存する。"""
     with plt.rc_context(PLOT_STYLE):
         plot_waiting_comparison(results, output)
         plot_queue_example(results["schedules"], output)
@@ -29,12 +29,11 @@ def plot_results(results, output):
 
 
 def save_figure(fig, output, filename, note):
-    """図番号・タイトル・条件を図の下へ置き、PNGとPDFで保存する。"""
+    """図番号・タイトル・条件を図の下へ置き、PNGで保存する。"""
     caption = FIGURE_CAPTIONS[filename] + "\n" + note
     fig.text(0.5, 0.02, caption, ha="center", va="bottom", fontsize=11)
     fig.tight_layout(rect=(0, 0.65 / fig.get_figheight(), 1, 1))
-    for suffix in ("png", "pdf"):
-        fig.savefig(output / f"{filename}.{suffix}")
+    fig.savefig(output / f"{filename}.png")
     plt.close(fig)
 
 
