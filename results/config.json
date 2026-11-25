@@ -1,6 +1,6 @@
 {
   "study_scope": "arrival schedule deviation; cyber tampering is one possible cause; causes are not simulated separately",
-  "model_version": "discrete_4berth_one_ship_late_v9",
+  "model_version": "discrete_4berth_one_ship_late_v10",
   "trials_per_cell": 1,
   "first_seed": 42,
   "last_seed": 42,
@@ -13,7 +13,7 @@
     1.0,
     1.5
   ],
-  "demand_rule": "mean_interarrival_time = base_mean_interarrival_hours / demand_multiplier",
+  "demand_rule": "mean_candidate_interarrival_time = base_mean_interarrival_hours / demand_multiplier",
   "target_ship_count": 1,
   "target_position": 0.1,
   "target_selection": "ceil(ship_count * target_position), one-based actual arrival order; ties follow input order",
@@ -35,11 +35,11 @@
   "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
   "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
   "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
-  "normal_arrival_adjustment": "none; actual arrivals remain at generated times",
+  "normal_arrival_adjustment": "plan_from_candidate_arrivals; align arrivals_to_planned_starts_once_before_comparison",
   "plan_update": "change_one_report_then_replan_once_before_operations; actual_arrivals_unchanged",
   "comparison_baseline": "same_input_trial_demand_and_policy; shifted_minus_matched",
   "initial_berth_state": "all_empty",
-  "period_end": "finish_all_ships_arriving_before_period_end_including_later_completions",
+  "period_end": "keep_all_ships_with_candidate_arrival_before_period_end_including_later_arrivals_and_completions",
   "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
   "distinct_normal_plans": 3,
   "shifted_executions": 18,
@@ -49,64 +49,64 @@
       "demand_multiplier": 0.75,
       "policy": "fixed",
       "trials": 1,
-      "mean_total_waiting_hours": 0.8887905920473145,
-      "max_waiting_hours": 0.8887905920473145
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 0.75,
       "policy": "reassign",
       "trials": 1,
-      "mean_total_waiting_hours": 0.8887905920473145,
-      "max_waiting_hours": 0.8887905920473145
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 0.75,
       "policy": "same_berth",
       "trials": 1,
-      "mean_total_waiting_hours": 0.8887905920473145,
-      "max_waiting_hours": 0.8887905920473145
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 1.0,
       "policy": "fixed",
       "trials": 1,
-      "mean_total_waiting_hours": 12.652603252258587,
-      "max_waiting_hours": 2.6191749553373
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 1.0,
       "policy": "reassign",
       "trials": 1,
-      "mean_total_waiting_hours": 12.652603252258587,
-      "max_waiting_hours": 2.6191749553373
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 1.0,
       "policy": "same_berth",
       "trials": 1,
-      "mean_total_waiting_hours": 12.652603252258587,
-      "max_waiting_hours": 2.6191749553373
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 1.5,
       "policy": "fixed",
       "trials": 1,
-      "mean_total_waiting_hours": 63.83361809056976,
-      "max_waiting_hours": 5.148451741464882
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 1.5,
       "policy": "reassign",
       "trials": 1,
-      "mean_total_waiting_hours": 63.83361809056976,
-      "max_waiting_hours": 5.148451741464882
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     },
     {
       "demand_multiplier": 1.5,
       "policy": "same_berth",
       "trials": 1,
-      "mean_total_waiting_hours": 63.83361809056976,
-      "max_waiting_hours": 5.148451741464882
+      "mean_total_waiting_hours": 0.0,
+      "max_waiting_hours": 0.0
     }
   ],
   "normal_occupancy": 0.47345317526161557,
@@ -115,7 +115,7 @@
   "example_shift_hours": 8,
   "example_seed": 42,
   "normal_plan_diagnostics": {
-    "last_actual_arrival_hours": 167.4236905360815,
+    "last_actual_arrival_hours": 172.103225082708,
     "last_planned_completion_hours": 177.62782323039877
   },
   "numpy_version": "2.5.1",

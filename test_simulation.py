@@ -16,7 +16,7 @@ from cli import create_parser, parse_args
 from result_output import (EXCEL_COLUMNS, EXCEL_VALUES, SUMMARY_OVERVIEW_COLUMNS,
                            create_config, create_summary_overview, excel_number_format, save_results,
                            translate_excel_table)
-from simulation import (POLICIES, apply_attack, create_plan,
+from simulation import (POLICIES, apply_attack, coordinate_arrivals, create_plan,
                         calculate_metrics, execute_adjusted_plan, execute_fixed_plan, generate_ship_data,
                         run_experiment, select_target_ship,
                         WAIT_REASONS, calculate_waiting_reasons, count_start_competitions)
@@ -47,16 +47,20 @@ class SimulationTests(unittest.TestCase):
                 parse_args(create_parser())
             self.assertEqual(saved.read_text(), 'existing result')
 
-    def test_normal_plan_preserves_arrivals_and_allows_waiting(self):
+    def test_coordinated_arrivals_start_at_the_planned_times(self):
         data = small_data([0, 2, 3], [3, 3, 3])
         saved = data.copy(deep=True)
-        plan = create_plan(data)
+        coordinated, plan = coordinate_arrivals(data)
         pd.testing.assert_frame_equal(data, saved)
-        np.testing.assert_array_equal(plan.actual_arrival_time, [0, 2, 3])
+        np.testing.assert_array_equal(coordinated.candidate_arrival_time, [0, 2, 3])
+        np.testing.assert_array_equal(coordinated.arrival_adjustment_time, [0, 1, 3])
+        np.testing.assert_array_equal(coordinated.actual_arrival_time, [0, 3, 6])
+        np.testing.assert_array_equal(coordinated.reported_arrival_time, [0, 3, 6])
+        np.testing.assert_array_equal(coordinated.handling_time_B1, [3, 3, 3])
         for policy in POLICIES:
             schedule = (execute_fixed_plan(plan) if policy == "fixed" else
-                        execute_adjusted_plan(data, plan, policy))
-            np.testing.assert_array_equal(schedule.waiting_time, [0, 1, 3])
+                        execute_adjusted_plan(coordinated, plan, policy))
+            np.testing.assert_array_equal(schedule.waiting_time, [0, 0, 0])
             np.testing.assert_array_equal(schedule.start_time, [0, 3, 6])
 
     def test_distance_factors_and_random_attributes_are_reproducible(self):
@@ -175,8 +179,7 @@ class SimulationTests(unittest.TestCase):
             for row in case.itertuples():
                 self.assertEqual(row.actual_arrival_time, data.loc[(row.trial, row.demand_multiplier, row.ship), 'actual_arrival_time'])
         normal = schedules[schedules.scenario == 'normal']
-        self.assertTrue((normal.waiting_time >= 0).all())
-        self.assertTrue((normal.waiting_time > 0).any())
+        np.testing.assert_array_equal(normal.waiting_time, 0)
         compare = results['summary']
         for row in compare.itertuples():
             runs = results['run_metrics']
@@ -207,6 +210,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(len(result["plan_diagnostics"]), 3)
         self.assertEqual(POLICIES, ("fixed", "same_berth", "reassign"))
         self.assertEqual(runs.groupby("shift_hours").size().to_dict(), {0: 9, 2: 9, 8: 9})
+        self.assertTrue(runs.loc[runs.shift_hours.eq(0), "total_waiting_time"].eq(0).all())
         self.assertEqual(set(runs.demand_multiplier), {0.75, 1, 1.5})
         self.assertEqual(runs.seed.unique().tolist(), [42])
         self.assertTrue((result["summary"].trials == 1).all())
@@ -325,12 +329,12 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(sample.trial.iloc[0], (fixed[8] - fixed[0]).idxmax())
         self.assertLess(len(sample),len(full['schedules']))
 
-    def test_ships_finishing_after_arrival_period_are_not_dropped(self):
+    def test_ships_adjusted_past_candidate_period_are_not_dropped(self):
         result = run_experiment(trials=1, duration_hours=1, mean_interarrival_time=0.1, num_berths=1)
         data = result['ship_data'].query('demand_multiplier == 1')
-        self.assertTrue((data.actual_arrival_time < 1).all())
+        self.assertTrue((data.candidate_arrival_time < 1).all())
+        self.assertTrue((data.actual_arrival_time >= 1).any())
         self.assertGreater(result['plan_diagnostics'].last_planned_completion.iloc[0], 1)
-        self.assertNotIn('candidate_arrival_time', data.columns)
         for _, schedule in result['schedules'].groupby(['scenario', 'policy']):
             self.assertEqual(set(schedule.ship), set(data.ship))
 
@@ -396,7 +400,7 @@ class SimulationTests(unittest.TestCase):
                         self.assertTrue(all(cell[0].number_format == '0' for cell in
                                             sheet.iter_rows(min_row=2, min_col=headers[label], max_col=headers[label])))
             ships_sheet = workbook['船別データ']
-            self.assertEqual(ships_sheet['B3'].number_format, '0.#')
+            self.assertEqual(ships_sheet['I3'].number_format, '0.#')
             for value, expected in [(2, '0'), (1.1, '0.##'), (161.609, '0'),
                                     (0.0000227928, '0.#######'), (99.999, '0'),
                                     (-0.0012345, '0.#####'), (1e-15, '0')]:
@@ -410,12 +414,15 @@ class SimulationTests(unittest.TestCase):
             saved_ships = pd.read_excel(output / 'results.xlsx', sheet_name='船別データ')
             self.assertEqual(len(saved_ships), len(results['ship_data']))
             self.assertIn('実到着時刻（時間）', saved_ships)
-            self.assertIn('ずれなし条件の予定到着時刻（時間）', saved_ships)
+            self.assertEqual(saved_ships.columns[2:8].tolist(), [
+                '乱数で生成した到着候補（時間）', '基準荷役時間（時間）', '到着を遅らせた時間（時間）',
+                '調整後の予定到着・荷役開始（時間）', '計画バース', 'ずれなしの荷役完了予定（時間）',
+            ])
             for berth in range(1, 5):
                 self.assertIn(f'B{berth}の荷役時間（時間）', saved_ships)
             restored = saved_ships.rename(columns={label: key for key, label in EXCEL_COLUMNS.items()})
             restored['is_target'] = restored['is_target'].map({'対象': True, '対象外': False})
-            pd.testing.assert_frame_equal(restored, results['ship_data'], check_dtype=False)
+            pd.testing.assert_frame_equal(restored, results['ship_data'], check_dtype=False, check_like=True)
             reasons = pd.read_excel(output / 'results.xlsx', sheet_name='待ち理由', header=38)
             self.assertEqual(len(reasons), len(results['waiting_details']))
             columns = ['全バース使用中の待ち（時間）', '指定バース使用中・別バース空きの待ち（時間）',
@@ -443,12 +450,12 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(saved_config['first_seed'], 42)
             self.assertEqual(saved_config['policies'], ['fixed', 'same_berth', 'reassign'])
             self.assertIn('normal_plan_diagnostics', saved_config)
-            self.assertEqual(saved_config['model_version'], 'discrete_4berth_one_ship_late_v9')
+            self.assertEqual(saved_config['model_version'], 'discrete_4berth_one_ship_late_v10')
             self.assertEqual(len(saved_config['normal_waiting_summary']), 9)
+            self.assertTrue(all(row['mean_total_waiting_hours'] == 0 for row in saved_config['normal_waiting_summary']))
             self.assertEqual(saved_config['target_ship_count'], 1)
             self.assertEqual(saved_config['target_position'], 0.10)
             self.assertEqual(saved_config['report_shift_hours'], [2, 8])
-            self.assertNotIn('max_arrival_adjustment_hours', saved_config['normal_plan_diagnostics'])
             self.assertIn('mean_difference', results['summary'])
             self.assertEqual(saved_config['demand_multipliers'], [0.75, 1, 1.5])
             self.assertIn('demand_multiplier', results['run_metrics'])

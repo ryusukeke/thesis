@@ -43,9 +43,12 @@ EXCEL_COLUMNS = {
     "target_ship": "対象船ID", "target_rank": "対象船の実到着順", "is_target": "予定をずらす船",
     "num_ships": "全船数（隻）", **METRIC_LABELS,
     "ship": "船ID", "actual_arrival_time": "実到着時刻（時間）",
-    "reported_arrival_time": "ずれなし条件の予定到着時刻（時間）",
+    "candidate_arrival_time": "乱数で生成した到着候補（時間）",
+    "arrival_adjustment_time": "到着を遅らせた時間（時間）",
+    "reported_arrival_time": "調整後の予定到着・荷役開始（時間）",
     "planned_berth": "計画バース", "assigned_berth": "実行バース",
     "planned_start_time": "計画荷役開始時刻（時間）", "start_time": "実荷役開始時刻（時間）",
+    "planned_completion_time": "ずれなしの荷役完了予定（時間）",
     "waiting_time": "待ち時間（時間）",
     **WAIT_REASON_LABELS,
     **{f"total_{name}": f"全船の{label}" for name, label in WAIT_REASON_LABELS.items()},
@@ -78,13 +81,13 @@ def create_config(args, results, interval):
     )
     return {
         "study_scope": "arrival schedule deviation; cyber tampering is one possible cause; causes are not simulated separately",
-        "model_version": "discrete_4berth_one_ship_late_v9",
+        "model_version": "discrete_4berth_one_ship_late_v10",
         "trials_per_cell": args.trials, "first_seed": args.seed,
         "last_seed": args.seed + args.trials - 1,
         "num_berths": NUM_BERTHS, "arrival_duration_hours": DURATION_HOURS,
         "base_mean_interarrival_hours": interval, "interval_source": "kobe_day_ahead_forecasts",
         "demand_multipliers": sorted(runs.demand_multiplier.unique().tolist()),
-        "demand_rule": "mean_interarrival_time = base_mean_interarrival_hours / demand_multiplier",
+        "demand_rule": "mean_candidate_interarrival_time = base_mean_interarrival_hours / demand_multiplier",
         "target_ship_count": 1,
         "target_position": TARGET_POSITION,
         "target_selection": "ceil(ship_count * target_position), one-based actual arrival order; ties follow input order",
@@ -98,11 +101,11 @@ def create_config(args, results, interval):
         "handling_model": "base_times_1_plus_0.1_times_berth_index_distance",
         "cargo_nearest_berth": "uniform_integer_from_1_to_berths",
         "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
-        "normal_arrival_adjustment": "none; actual arrivals remain at generated times",
+        "normal_arrival_adjustment": "plan_from_candidate_arrivals; align arrivals_to_planned_starts_once_before_comparison",
         "plan_update": "change_one_report_then_replan_once_before_operations; actual_arrivals_unchanged",
         "comparison_baseline": "same_input_trial_demand_and_policy; shifted_minus_matched",
         "initial_berth_state": "all_empty",
-        "period_end": "finish_all_ships_arriving_before_period_end_including_later_completions",
+        "period_end": "keep_all_ships_with_candidate_arrival_before_period_end_including_later_arrivals_and_completions",
         "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
         "distinct_normal_plans": len(results["plan_diagnostics"]),
         "shifted_executions": int((runs.scenario == "attack").sum()),
@@ -157,6 +160,14 @@ def save_excel(results, path):
             if name == "waiting_details":
                 save_waiting_reason_sheet(writer, results)
                 continue
+            if name == "ship_data":
+                # 乱数による入力、到着の調整、ずれなしの計画を同じ行で左から読めるようにする。
+                comparison_columns = [
+                    "ship", "demand_multiplier", "candidate_arrival_time", "base_handling_time",
+                    "arrival_adjustment_time", "reported_arrival_time", "planned_berth",
+                    "planned_completion_time", "actual_arrival_time",
+                ]
+                table = table[comparison_columns + [column for column in table if column not in comparison_columns]]
             display = translate_excel_table(table)
             sheet_name = EXCEL_SHEETS[name]
             display.to_excel(writer, sheet_name=sheet_name, index=False)
@@ -251,7 +262,7 @@ def format_summary_sheet(sheet, overview, summary, detail_header):
         1: "1隻の予定ずれと船の待ち時間",
         2: "実到着順の10%地点の1隻を対象に、予定到着を2時間または8時間遅らせた比較。",
         3: "増減＝予定ずれあり−同じ方式のずれなし条件。＋は待ちが増加、−は減少。",
-        4: f"{trial_label}。各船の待ち時間を合計。実到着・荷役条件はずれなし条件と同じ。",
+        4: f"{trial_label}。各船の待ち時間を合計。荷役開始予定に合わせた実到着を全条件で共有。",
         6: "表1 全船の総待ち時間の比較",
         detail_header - 3: "表2 全指標の詳細集計",
         detail_header - 2: f"{deviation_note} 差は同じ試行・到着頻度・方式のずれなしから算出。",
@@ -356,7 +367,7 @@ def print_summary(results, interval, output):
     print(f"{runs.trial.nunique()}試行、ずれなし運用{int((runs.scenario == 'normal').sum())}ケース、"
           f"1隻の予定ずれ運用{int((runs.scenario == 'attack').sum())}ケース。")
     print("実到着順の10%地点の1隻だけ、予定到着を2時間または8時間遅らせます。")
-    print(f"実到着の基準平均間隔：{interval:.6f}時間。実到着・荷役条件はずれなし条件と共通です。")
+    print(f"到着候補の基準平均間隔：{interval:.6f}時間。最初の荷役開始予定に合わせた実到着を全条件で使います。")
     print(translate_excel_table(create_summary_overview(results["summary"]), SUMMARY_OVERVIEW_COLUMNS)
           .round(4).to_string(index=False))
     print("保存なし" if output is None else f"保存先：{output.resolve()}")

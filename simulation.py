@@ -33,10 +33,10 @@ WAIT_REASONS = (
 
 def generate_ship_data(num_ships=10, num_berths=NUM_BERTHS, seed=42,
                        mean_interarrival_time=3.0, duration_hours=None):
-    """実到着、基準荷役時間、荷物の最寄りバースを乱数で作る。
+    """到着候補、基準荷役時間、荷物の最寄りバースを乱数で作る。
 
     荷役係数は1 + 0.1 × 最寄りバースからの番号の差。速度や実距離は扱わない。
-    ずれなしの予定情報は実到着と同じにし、計画作成後も実到着を動かさない。
+    到着候補を実到着と予定到着の両欄に入れて、最初の計画に渡す。
     """
     rng = np.random.default_rng(seed)
     # 固定隻数は従来の計算を保つ。期間指定では、期間内の到着を順に作る。
@@ -122,6 +122,24 @@ def create_plan(data):
             "planned_completion_time": completion,
         })
     return pd.DataFrame(plan)
+
+
+def coordinate_arrivals(data):
+    """最初の計画を作り、各船の実到着と予定到着をその荷役開始予定にそろえる。"""
+    plan = create_plan(data)
+    start_times = plan.set_index("ship")["planned_start_time"]
+    candidate_arrivals = data["actual_arrival_time"]
+    arrivals = data["ship"].map(start_times)
+    coordinated = data.assign(
+        actual_arrival_time=arrivals,
+        reported_arrival_time=arrivals,
+        candidate_arrival_time=candidate_arrivals,
+        arrival_adjustment_time=arrivals - candidate_arrivals,
+    )
+    # バースと荷役順は保持し、計画に載せる両到着時刻を調整後の値にそろえる。
+    plan["actual_arrival_time"] = plan["planned_start_time"]
+    plan["reported_arrival_time"] = plan["planned_start_time"]
+    return coordinated, plan
 
 
 def create_execution_result(planned_ship, berth_index, start_time, handling_time):
@@ -344,17 +362,17 @@ def calculate_plan_diagnostics(data, normal_plan, duration_hours):
     }
 
 
-def run_comparison_cases(data, shared, policies):
-    """共通入力で、ずれなし・2時間・8時間の計画を各1回作り、各方式を実行する。"""
+def run_comparison_cases(data, normal_plan, shared, policies):
+    """共通入力とずれなし計画を受け取り、遅れ幅ごとに計画を更新して各方式を実行する。"""
     num_berths = sum(column.startswith("handling_time_B") for column in data)
     schedules, metrics, waiting_details = [], [], []
     normal_by_policy = {}
     for shift in (0, *REPORT_SHIFT_HOURS):
         scenario = "attack" if shift else "normal"
-        arrivals = apply_attack(data, {shared["target_ship"]: shift}) if shift else data
-        plan = create_plan(arrivals)
-        if shift == 0:
-            normal_plan = plan
+        arrivals, plan = data, normal_plan
+        if shift:
+            arrivals = apply_attack(data, {shared["target_ship"]: shift})
+            plan = create_plan(arrivals)
         for policy in policies:
             schedule = execute_policy(arrivals, plan, policy)
             labels = {**shared, "shift_hours": shift, "scenario": scenario, "policy": policy}
@@ -376,7 +394,7 @@ def run_comparison_cases(data, shared, policies):
             })
             if shift == 0:
                 normal_by_policy[policy] = schedule
-    return normal_plan, schedules, metrics, waiting_details
+    return schedules, metrics, waiting_details
 
 
 def example_wait_increase(metrics, policy):
@@ -414,12 +432,18 @@ def run_experiment(trials=1, num_ships=10, num_berths=NUM_BERTHS, seed=42,
             )
             if len(data) < 2:
                 raise ValueError(f"seed={trial_seed}、到着頻度{demand:g}倍：船が2隻未満です。")
+            data, normal_plan = coordinate_arrivals(data)
             target, rank = select_target_ship(data)
             shared = {"trial": trial_seed - seed + 1, "seed": trial_seed, "demand_multiplier": demand,
                       "target_ship": target, "target_rank": rank}
-            inputs.append(data.assign(trial=shared["trial"], seed=trial_seed, demand_multiplier=demand,
-                                      is_target=data.ship.eq(target)))
-            normal_plan, case_schedules, case_metrics, case_details = run_comparison_cases(data, shared, policies)
+            plan_by_ship = normal_plan.set_index("ship")
+            inputs.append(data.assign(
+                planned_berth=data.ship.map(plan_by_ship["assigned_berth"]),
+                planned_completion_time=data.ship.map(plan_by_ship["planned_completion_time"]),
+                trial=shared["trial"], seed=trial_seed, demand_multiplier=demand,
+                is_target=data.ship.eq(target),
+            ))
+            case_schedules, case_metrics, case_details = run_comparison_cases(data, normal_plan, shared, policies)
             waiting_details.extend(case_details)
             diagnostics.append({**shared, **calculate_plan_diagnostics(data, normal_plan, duration_hours)})
             metrics.extend(case_metrics)
