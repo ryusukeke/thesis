@@ -2,7 +2,6 @@
 
 import matplotlib
 import numpy as np
-import pandas as pd
 
 from simulation import POLICIES
 
@@ -13,24 +12,20 @@ POLICY_NAMES = {"fixed": "A: Fixed plan", "same_berth": "B: Same berth", "reassi
 COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
 PLOT_STYLE = {"figure.titlesize": 11, "axes.titlesize": 10, "legend.fontsize": 8,
               "grid.alpha": 0.2, "savefig.dpi": 180}
-FIGURE_CAPTIONS = {
-    "01_waiting_comparison": "Figure 1. Change in total waiting time by arrival frequency and ETA delay",
-    "02_queue_example": "Figure 2. Numbers of ships waiting over time",
-    "03_schedule_example": "Figure 3. Matched and shifted handling schedules",
-}
 
 
 def plot_results(results, output):
-    """ずれなし比較・待ち船数・荷役スケジュールの3図をPNGで保存する。"""
+    """総待ち時間と到着頻度ごとの荷役スケジュールをPNGで保存する。"""
     with plt.rc_context(PLOT_STYLE):
         plot_waiting_comparison(results, output)
-        plot_queue_example(results["schedules"], output)
-        plot_schedule_example(results["schedules"], output)
+        by_demand = results["schedules"].groupby("demand_multiplier", sort=True)
+        for figure_number, (_, schedules) in enumerate(by_demand, start=2):
+            plot_schedule_example(schedules, output, figure_number)
 
 
-def save_figure(fig, output, filename, note):
+def save_figure(fig, output, filename, title, note):
     """図番号・タイトル・条件を図の下へ置き、PNGで保存する。"""
-    caption = FIGURE_CAPTIONS[filename] + "\n" + note
+    caption = f"{title}\n{note}"
     fig.text(0.5, 0.02, caption, ha="center", va="bottom", fontsize=11)
     fig.tight_layout(rect=(0, 0.65 / fig.get_figheight(), 1, 1))
     fig.savefig(output / f"{filename}.png")
@@ -38,7 +33,7 @@ def save_figure(fig, output, filename, note):
 
 
 def plot_waiting_comparison(results, output):
-    """到着頻度ごとに、全船の総待ち時間の対応差を2・8時間で比較する。"""
+    """到着頻度ごとに、全船の総待ち時間を2・8時間で比較する。"""
     data = results["summary"].query("metric == 'total_waiting_time'")
     demands = sorted(data.demand_multiplier.unique())
     shifts = sorted(data.shift_hours.unique())
@@ -49,10 +44,10 @@ def plot_waiting_comparison(results, output):
         for index, policy in enumerate(POLICIES):
             rows = data[(data.demand_multiplier == demand) & (data.policy == policy)]
             positions = np.arange(len(shifts)) + (index - 1) * 0.24
-            differences = rows.set_index("shift_hours").reindex(shifts).mean_difference
-            axis.bar(positions, differences, width=0.24, color=COLORS[policy], label=POLICY_NAMES[policy])
-            unchanged = differences.abs() <= 1e-9
-            zero_markers = axis.scatter(positions[unchanged], np.zeros(unchanged.sum()),
+            total_wait = rows.set_index("shift_hours").reindex(shifts)["mean"]
+            axis.bar(positions, total_wait, width=0.24, color=COLORS[policy], label=POLICY_NAMES[policy])
+            no_wait = total_wait.abs() <= 1e-9
+            zero_markers = axis.scatter(positions[no_wait], np.zeros(no_wait.sum()),
                                         color=COLORS[policy], s=16, clip_on=False, zorder=3)
             zero_markers.set_in_layout(False)
         axis.axhline(0, color="0.45", linewidth=0.8)
@@ -60,20 +55,13 @@ def plot_waiting_comparison(results, output):
         axis.set_xticks(range(len(shifts)), shifts)
         axis.set_axisbelow(True)
         axis.grid(axis="y")
-    axes[0].set_ylabel("Change in total waiting time (hours)")
+    axes[0].set_ylabel("Total waiting time (hours)")
     axes[-1].legend()
     trials = int(data.trials.max())
     trial_label = "1 trial per condition" if trials == 1 else f"Mean across {trials} trials per condition"
     save_figure(fig, output, "01_waiting_comparison",
-                f"Compared with matched ETA. Dots mark zero change. {trial_label}.")
-
-
-def queue_profile(schedule, end):
-    """到着で+1、荷役開始で-1とし、同時刻をまとめた待ち船数を返す。"""
-    times = np.r_[0.0, schedule.actual_arrival_time, schedule.start_time, end]
-    counts = np.r_[0, np.ones(len(schedule)), -np.ones(len(schedule)), 0]
-    changes = pd.Series(counts, index=times).groupby(level=0).sum().sort_index()
-    return changes.index.to_numpy(), changes.cumsum().to_numpy()
+                "Figure 1. Total waiting time by arrival frequency and ETA delay",
+                f"Dots mark zero waiting time. {trial_label}.")
 
 
 def example_description(schedules):
@@ -83,49 +71,55 @@ def example_description(schedules):
             f"ETA +{schedules.shift_hours.max():g} h for {first.target_ship}")
 
 
-def plot_queue_example(schedules, output):
-    """同じ試行のずれなしと予定ずれあり条件の待ち船数を3方式で並べる。"""
-    fig, axes = plt.subplots(3, 1, figsize=(12, 8), sharex=True, sharey=True)
-    end = schedules.completion_time.max()
-    for axis, policy in zip(axes, POLICIES):
-        for scenario, label, color in [("normal", "Matched ETA", "0.45"), ("attack", "Shifted ETA", COLORS[policy])]:
-            rows = schedules[(schedules.policy == policy) & ((schedules.scenario == "normal") if scenario == "normal"
-                                                          else (schedules.scenario != "normal"))]
-            times, counts = queue_profile(rows, end)
-            axis.step(times, counts, where="post", label=label, color=color,
-                      linestyle="--" if scenario == "normal" else "-")
-        axis.set(title=POLICY_NAMES[policy], ylabel="Ships waiting", ylim=(0, None))
-        axis.grid(axis="y")
-        axis.legend()
-    axes[-1].set(xlabel="Hours since beginning", xlim=(0, end))
-    save_figure(fig, output, "02_queue_example", example_description(schedules))
-
-
-def draw_ship_schedule(axis, schedule, target_ship, start, end):
-    """範囲と重なる荷役を描き、予定をずらす対象船を青で示す。"""
+def draw_ship_schedule(axis, schedule, target_ship, end):
+    """荷役の棒と船IDを描き、修正後の計画からずれた船を赤くする。"""
+    label_min_hours = end / 100
     for row in schedule.itertuples():
-        if row.completion_time <= start or row.start_time >= end:
-            continue
         berth = int(row.assigned_berth[1:])
-        axis.barh(berth, row.handling_time, left=row.start_time, height=0.65,
-                  color="C0" if row.ship == target_ship else "0.72", edgecolor="white")
-        visible_start = max(start, row.start_time)
-        if min(end, row.completion_time) - visible_start > 1:
-            axis.text(visible_start + 0.1, berth, row.ship, va="center", fontsize=7, clip_on=True)
+        is_target = row.ship == target_ship
+        differs_from_plan = (
+            row.assigned_berth != row.planned_berth
+            or abs(row.start_time - row.planned_start_time) > 1e-9
+            or abs(row.completion_time - row.planned_completion_time) > 1e-9
+        )
+        color, label_color = ("C0", "C0") if is_target else ("0.72", "0.25")
+        if differs_from_plan:
+            color, label_color = "#e35d5d", "#a4262c"
+        axis.barh(berth, row.handling_time, left=row.start_time, height=0.50,
+                  color=color, edgecolor="none" if is_target else "white", linewidth=0.5)
+        center = row.start_time + row.handling_time / 2
+        if row.handling_time >= label_min_hours:
+            axis.text(center, berth, row.ship, ha="center", va="center", fontsize=7)
+        else:
+            label_x = np.clip(center, label_min_hours / 2, end - label_min_hours / 2)
+            axis.text(label_x, berth + 0.33, row.ship, ha="center", va="bottom",
+                      fontsize=7, color=label_color)
 
 
-def plot_schedule_example(schedules, output):
-    """対象船の実到着周辺の荷役を6段で描く。"""
+def plot_schedule_example(schedules, output, figure_number):
+    """予定ずれを反映した計画と各方式の実行を、最後の荷役完了まで描く。"""
     target_ship = schedules.target_ship.iloc[0]
-    center = schedules.loc[schedules.ship == target_ship, "actual_arrival_time"].iloc[0]
-    start, end = max(0, center - 12), center + 36
-    fig, axes = plt.subplots(6, 1, figsize=(12, 11), sharex=True)
-    for axis, (policy, scenario) in zip(axes, [(p, s) for p in POLICIES for s in ("normal", "attack")]):
-        rows = schedules[(schedules.policy == policy) & ((schedules.scenario == "normal") if scenario == "normal"
-                                                       else (schedules.scenario != "normal"))]
-        draw_ship_schedule(axis, rows, target_ship, start, end)
-        axis.set(title=POLICY_NAMES[policy] + (": Matched ETA" if scenario == "normal" else ": Shifted ETA"))
+    example = schedules.iloc[0]
+    # 実行結果には、3方式で共通の修正後の計画が船ごとに記録されている。
+    plan = schedules.drop_duplicates("ship").assign(
+        assigned_berth=lambda rows: rows.planned_berth,
+        start_time=lambda rows: rows.planned_start_time,
+        completion_time=lambda rows: rows.planned_completion_time,
+        handling_time=lambda rows: rows.completion_time - rows.start_time,
+    )
+    end = max(plan.completion_time.max(), schedules.completion_time.max())
+    panels = [("Updated plan (with delayed ETA)", plan)]
+    for policy in POLICIES:
+        rows = schedules.loc[schedules.policy.eq(policy)]
+        panels.append((POLICY_NAMES[policy], rows))
+    fig, axes = plt.subplots(len(panels), 1, figsize=(22, 10), sharex=True)
+    for axis, (title, rows) in zip(axes, panels):
+        draw_ship_schedule(axis, rows, target_ship, end)
+        axis.set(title=title, ylim=(0.6, 4.65))
         axis.set_yticks([1, 2, 3, 4], ["B1", "B2", "B3", "B4"])
         axis.grid(axis="x")
-    axes[-1].set(xlim=(start, end), xlabel="Hours since beginning; blue marks the same target ship in every panel")
-    save_figure(fig, output, "03_schedule_example", example_description(schedules))
+    axes[-1].set(xlim=(0, end),
+                 xlabel="Hours since beginning  |  Red = handling differs from updated plan  |  Blue = target ship when on plan")
+    filename = f"{figure_number:02d}_schedule_{example.demand_multiplier:g}x"
+    title = f"Figure {figure_number}. Updated plan and actual handling with delayed ETA"
+    save_figure(fig, output, filename, title, example_description(schedules))

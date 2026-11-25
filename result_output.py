@@ -5,7 +5,6 @@ import json
 import numpy as np
 import pandas as pd
 from openpyxl import __version__ as openpyxl_version
-from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -28,16 +27,12 @@ METRIC_LABELS = {
     "average_turnaround_time": "全船の平均在港時間（時間）",
     "completion_time": "最終荷役完了時刻（開始からの時間）",
     "berth_changes": "計画からバースを変更した船数（隻）",
-    "increased_waiting_ships": "ずれなし条件より待ちが増えた全船数（隻）",
+    "waiting_ships": "待ちが生じた船数（隻）",
 }
 EXCEL_COLUMNS = {
-    "scenario": "予定情報の条件", "policy": "運用方式", "metric": "評価指標", "trials": "試行数",
+    "policy": "運用方式", "metric": "評価指標", "trials": "試行数",
     "mean": "予定ずれあり条件の指標値（試行平均）", "std": "予定ずれあり条件の標準偏差",
-    "normal_mean": "ずれなし条件の指標値（試行平均）", "mean_difference": "ずれなし条件との差（試行平均）",
-    "std_difference": "ずれなし条件との差の標準偏差",
-    "min_difference": "ずれなし条件との差の最小値", "max_difference": "ずれなし条件との差の最大値",
-    "increased_trials": "ずれなし条件より増加した試行数", "decreased_trials": "ずれなし条件より減少した試行数",
-    "unchanged_trials": "ずれなし条件と同じ試行数",
+    "minimum": "指標の最小値", "maximum": "指標の最大値",
     "trial": "試行番号", "seed": "乱数シード",
     "demand_multiplier": "到着頻度倍率", "shift_hours": "予定の遅れ（時間）",
     "target_ship": "対象船ID", "target_rank": "対象船の実到着順", "is_target": "予定をずらす船",
@@ -48,7 +43,7 @@ EXCEL_COLUMNS = {
     "reported_arrival_time": "調整後の予定到着・荷役開始（時間）",
     "planned_berth": "計画バース", "assigned_berth": "実行バース",
     "planned_start_time": "計画荷役開始時刻（時間）", "start_time": "実荷役開始時刻（時間）",
-    "planned_completion_time": "ずれなしの荷役完了予定（時間）",
+    "planned_completion_time": "初期計画の荷役完了予定（時間）",
     "waiting_time": "待ち時間（時間）",
     **WAIT_REASON_LABELS,
     **{f"total_{name}": f"全船の{label}" for name, label in WAIT_REASON_LABELS.items()},
@@ -59,29 +54,22 @@ EXCEL_COLUMNS = {
     **{f"handling_time_B{berth}": f"B{berth}の荷役時間（時間）" for berth in range(1, NUM_BERTHS + 1)},
 }
 EXCEL_VALUES = {
-    "scenario": {"normal": "ずれなし", "attack": "予定ずれあり"},
     "policy": {"fixed": "固定", "same_berth": "同じバース内調整", "reassign": "バース変更"},
     "metric": METRIC_LABELS,
     "is_target": {True: "対象", False: "対象外"},
 }
 SUMMARY_OVERVIEW_COLUMNS = {
     "demand_multiplier": EXCEL_COLUMNS["demand_multiplier"], "shift_hours": EXCEL_COLUMNS["shift_hours"],
-    "policy": "運用方式", "normal_mean": "ずれなし条件の総待ち時間（時間）",
-    "mean": "予定ずれありの総待ち時間（時間）", "mean_difference": "総待ち時間の増減（時間）",
+    "policy": "運用方式", "mean": "全船の総待ち時間（時間）",
 }
 
 
 def create_config(args, results, interval):
     """実行条件・乱数規則・モデルの仮定と、再現に必要な版を記録する。"""
     runs = results["run_metrics"]
-    normal = runs[runs.scenario == "normal"]
-    normal_waiting = normal.groupby(["demand_multiplier", "policy"], as_index=False).agg(
-        trials=("trial", "count"), mean_total_waiting_hours=("total_waiting_time", "mean"),
-        max_waiting_hours=("max_waiting_time", "max"),
-    )
     return {
         "study_scope": "arrival schedule deviation; cyber tampering is one possible cause; causes are not simulated separately",
-        "model_version": "discrete_4berth_one_ship_late_v10",
+        "model_version": "discrete_4berth_one_ship_late_v11",
         "trials_per_cell": args.trials, "first_seed": args.seed,
         "last_seed": args.seed + args.trials - 1,
         "num_berths": NUM_BERTHS, "arrival_duration_hours": DURATION_HOURS,
@@ -93,7 +81,7 @@ def create_config(args, results, interval):
         "target_selection": "ceil(ship_count * target_position), one-based actual arrival order; ties follow input order",
         "report_shift_hours": list(REPORT_SHIFT_HOURS),
         "shift_rule": "target ETA = actual arrival + shift_hours; other ETAs = actual arrivals",
-        "primary_metric": "total_waiting_time; shifted_minus_matched within trial, demand and policy",
+        "primary_metric": "total_waiting_time",
         "policies": runs.policy.unique().tolist(),
         "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
         "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
@@ -103,19 +91,16 @@ def create_config(args, results, interval):
         "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
         "normal_arrival_adjustment": "plan_from_candidate_arrivals; align arrivals_to_planned_starts_once_before_comparison",
         "plan_update": "change_one_report_then_replan_once_before_operations; actual_arrivals_unchanged",
-        "comparison_baseline": "same_input_trial_demand_and_policy; shifted_minus_matched",
+        "initial_plan_storage": "ship_data_only; no zero_shift_execution",
         "initial_berth_state": "all_empty",
         "period_end": "keep_all_ships_with_candidate_arrival_before_period_end_including_later_arrivals_and_completions",
         "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
         "distinct_normal_plans": len(results["plan_diagnostics"]),
-        "shifted_executions": int((runs.scenario == "attack").sum()),
-        "normal_executions": len(normal),
-        "normal_waiting_summary": normal_waiting.to_dict("records"),
+        "shifted_executions": len(runs),
         "normal_occupancy": results["plan_diagnostics"]["normal_occupancy"].mean(),
-        "schedule_storage": "illustrative trial with largest total-wait increase for the first policy at the baseline demand and +8 hours",
-        "example_demand_multiplier": float(results["schedules"].demand_multiplier.iloc[0]),
-        "example_shift_hours": int(results["schedules"].shift_hours.max()),
-        "example_seed": int(results["schedules"].seed.iloc[0]),
+        "schedule_storage": "illustrative trial with largest total waiting time for the first policy at each illustrated demand and +8 hours",
+        "schedule_examples": results["schedules"][["demand_multiplier", "shift_hours", "seed"]]
+        .drop_duplicates().to_dict("records"),
         "normal_plan_diagnostics": {
             "last_actual_arrival_hours": results["plan_diagnostics"]["last_actual_arrival"].max(),
             "last_planned_completion_hours": results["plan_diagnostics"]["last_planned_completion"].max(),
@@ -161,7 +146,7 @@ def save_excel(results, path):
                 save_waiting_reason_sheet(writer, results)
                 continue
             if name == "ship_data":
-                # 乱数による入力、到着の調整、ずれなしの計画を同じ行で左から読めるようにする。
+                # 乱数による入力、到着の調整、初期計画を同じ行で左から読めるようにする。
                 comparison_columns = [
                     "ship", "demand_multiplier", "candidate_arrival_time", "base_handling_time",
                     "arrival_adjustment_time", "reported_arrival_time", "planned_berth",
@@ -178,7 +163,7 @@ def save_excel(results, path):
 def create_waiting_overview(run_metrics):
     """各試行の全船分の待ち時間と競合回数を、条件ごとに集計する。"""
     columns = ["total_waiting_time", *[f"total_{name}" for name in WAIT_REASONS], "competition_events"]
-    keys = ["demand_multiplier", "shift_hours", "policy", "scenario"]
+    keys = ["demand_multiplier", "shift_hours", "policy"]
     return run_metrics.groupby(keys, sort=False)[columns].mean().reset_index()
 
 
@@ -206,7 +191,7 @@ def save_waiting_reason_sheet(writer, results):
         3: "分類の優先順：全バース使用中、指定バース使用中、計画順番待ち、計画開始待ち。重複して数えません。",
         4: "競合＝到着・完了時点で、開始前の到着済み待ち隻数＞空きバース数＞0。バース変更のみ集計。",
         5: "他2方式の競合欄は対象外で空欄。時間の内訳はその時間帯の状態で、原因の寄与率ではありません。",
-        6: "表1 ずれなし・予定ずれありの待ち時間の内訳",
+        6: "表1 予定ずれありの待ち時間の内訳",
         detail_header - 3: "計画順番待ち＝指定先は空きだが先行船が未完了。計画開始待ち＝先行船も完了し、計画開始前。",
         detail_header - 2: "表2 船ごとの待ち時間の内訳",
         detail_header - 1: "1行は1試行・到着頻度・予定の遅れ・方式・船の結果。競合参加回数は同じ競合に参加した各船へ数えます。",
@@ -233,7 +218,7 @@ def save_waiting_reason_sheet(writer, results):
 
 
 def create_summary_overview(summary):
-    """各到着頻度・変更幅・方式の総待ち時間と対応差を一覧にする。"""
+    """各到着頻度・変更幅・方式の総待ち時間を一覧にする。"""
     overview = summary.loc[summary.metric == "total_waiting_time", list(SUMMARY_OVERVIEW_COLUMNS)]
     return overview.reset_index(drop=True)
 
@@ -254,18 +239,18 @@ def save_summary_sheet(writer, summary):
 
 
 def format_summary_sheet(sheet, overview, summary, detail_header):
-    """条件と読み方を表の上へ置き、待ちの増減を色で見分けやすくする。"""
+    """条件と読み方を表の上へ置く。"""
     trials = int(summary.trials.max())
     trial_label = "1試行の結果" if trials == 1 else f"{trials}試行の平均"
     deviation_note = "1試行のため標準偏差は空欄です。" if trials == 1 else "標準偏差は試行間のばらつきです。"
     notes = {
         1: "1隻の予定ずれと船の待ち時間",
         2: "実到着順の10%地点の1隻を対象に、予定到着を2時間または8時間遅らせた比較。",
-        3: "増減＝予定ずれあり−同じ方式のずれなし条件。＋は待ちが増加、−は減少。",
+        3: "遅れ0時間は初期計画として「船別データ」に掲載。運用結果は2・8時間のみ。",
         4: f"{trial_label}。各船の待ち時間を合計。荷役開始予定に合わせた実到着を全条件で共有。",
         6: "表1 全船の総待ち時間の比較",
         detail_header - 3: "表2 全指標の詳細集計",
-        detail_header - 2: f"{deviation_note} 差は同じ試行・到着頻度・方式のずれなしから算出。",
+        detail_header - 2: deviation_note,
     }
     for row, text in notes.items():
         cell = sheet.cell(row, 1, text)
@@ -280,24 +265,12 @@ def format_summary_sheet(sheet, overview, summary, detail_header):
         link.font = Font(name="Arial", size=10, color="0563C1", underline="single")
     sheet.freeze_panes = "B8"
     sheet.sheet_view.zoomScale = 90
-    for column in "ABCDEF":
+    for column in "ABCD":
         sheet.column_dimensions[column].width = 30
     sheet.row_dimensions[7].height = 36
-    table = Table(displayName="WaitingOverview", ref=f"A7:F{7 + len(overview)}")
+    table = Table(displayName="WaitingOverview", ref=f"A7:D{7 + len(overview)}")
     table.tableStyleInfo = TableStyleInfo(name="TableStyleMedium2", showRowStripes=True)
     sheet.add_table(table)
-    for index in range(8, 8 + len(overview)):
-        difference = sheet.cell(index, 6)
-        if abs(difference.value) >= 1e-12:
-            base = excel_number_format(difference.value)
-            difference.number_format = f"+{base};-{base};0"
-    changes = f"F8:F{7 + len(overview)}"
-    for operator, limit, fill, color in [("greaterThan", 1e-9, "FCE8E6", "9C0006"),
-                                         ("lessThan", -1e-9, "E2F0D9", "275A2B")]:
-        sheet.conditional_formatting.add(changes, CellIsRule(
-            operator=operator, formula=[str(limit)], fill=PatternFill("solid", fgColor=fill),
-            font=Font(color=color),
-        ))
 
 
 def translate_excel_table(table, columns=EXCEL_COLUMNS):
@@ -364,8 +337,7 @@ def save_results(results, config, output):
 def print_summary(results, interval, output):
     """実行した条件と総待ち時間を表示する。"""
     runs = results["run_metrics"]
-    print(f"{runs.trial.nunique()}試行、ずれなし運用{int((runs.scenario == 'normal').sum())}ケース、"
-          f"1隻の予定ずれ運用{int((runs.scenario == 'attack').sum())}ケース。")
+    print(f"{runs.trial.nunique()}試行、1隻の予定ずれ運用{len(runs)}ケース。")
     print("実到着順の10%地点の1隻だけ、予定到着を2時間または8時間遅らせます。")
     print(f"到着候補の基準平均間隔：{interval:.6f}時間。最初の荷役開始予定に合わせた実到着を全条件で使います。")
     print(translate_excel_table(create_summary_overview(results["summary"]), SUMMARY_OVERVIEW_COLUMNS)

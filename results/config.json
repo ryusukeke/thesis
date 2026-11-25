@@ -1,6 +1,6 @@
 {
   "study_scope": "arrival schedule deviation; cyber tampering is one possible cause; causes are not simulated separately",
-  "model_version": "discrete_4berth_one_ship_late_v10",
+  "model_version": "discrete_4berth_one_ship_late_v11",
   "trials_per_cell": 1,
   "first_seed": 42,
   "last_seed": 42,
@@ -22,7 +22,7 @@
     8
   ],
   "shift_rule": "target ETA = actual arrival + shift_hours; other ETAs = actual arrivals",
-  "primary_metric": "total_waiting_time; shifted_minus_matched within trial, demand and policy",
+  "primary_metric": "total_waiting_time",
   "policies": [
     "fixed",
     "same_berth",
@@ -37,83 +37,31 @@
   "attribute_rng_seed": "trial_seed+100000; per-ship gamma then cargo position",
   "normal_arrival_adjustment": "plan_from_candidate_arrivals; align arrivals_to_planned_starts_once_before_comparison",
   "plan_update": "change_one_report_then_replan_once_before_operations; actual_arrivals_unchanged",
-  "comparison_baseline": "same_input_trial_demand_and_policy; shifted_minus_matched",
+  "initial_plan_storage": "ship_data_only; no zero_shift_execution",
   "initial_berth_state": "all_empty",
   "period_end": "keep_all_ships_with_candidate_arrival_before_period_end_including_later_arrivals_and_completions",
   "same_time_order": "arrivals_and_completions_together; eligible_ships_in_updated_plan_order",
   "distinct_normal_plans": 3,
   "shifted_executions": 18,
-  "normal_executions": 9,
-  "normal_waiting_summary": [
+  "normal_occupancy": 0.47345317526161557,
+  "schedule_storage": "illustrative trial with largest total waiting time for the first policy at each illustrated demand and +8 hours",
+  "schedule_examples": [
     {
       "demand_multiplier": 0.75,
-      "policy": "fixed",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
-    },
-    {
-      "demand_multiplier": 0.75,
-      "policy": "reassign",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
-    },
-    {
-      "demand_multiplier": 0.75,
-      "policy": "same_berth",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
+      "shift_hours": 8,
+      "seed": 42
     },
     {
       "demand_multiplier": 1.0,
-      "policy": "fixed",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
-    },
-    {
-      "demand_multiplier": 1.0,
-      "policy": "reassign",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
-    },
-    {
-      "demand_multiplier": 1.0,
-      "policy": "same_berth",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
+      "shift_hours": 8,
+      "seed": 42
     },
     {
       "demand_multiplier": 1.5,
-      "policy": "fixed",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
-    },
-    {
-      "demand_multiplier": 1.5,
-      "policy": "reassign",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
-    },
-    {
-      "demand_multiplier": 1.5,
-      "policy": "same_berth",
-      "trials": 1,
-      "mean_total_waiting_hours": 0.0,
-      "max_waiting_hours": 0.0
+      "shift_hours": 8,
+      "seed": 42
     }
   ],
-  "normal_occupancy": 0.47345317526161557,
-  "schedule_storage": "illustrative trial with largest total-wait increase for the first policy at the baseline demand and +8 hours",
-  "example_demand_multiplier": 1.0,
-  "example_shift_hours": 8,
-  "example_seed": 42,
   "normal_plan_diagnostics": {
     "last_actual_arrival_hours": 172.103225082708,
     "last_planned_completion_hours": 177.62782323039877
@@ -132,7 +80,7 @@
     "classification": "exclusive states of observed waiting intervals; not a causal decomposition",
     "competition_rule": "reassign only; at each unique arrival/completion before starts: waiting_ships > free_berths > 0",
     "participations": "each candidate ship counts once per competition event; not additive to event count",
-    "detail_rows": 1737
+    "detail_rows": 1158
   },
   "excel_number_format": {
     "significant_digits_for_fractional_values": 3,

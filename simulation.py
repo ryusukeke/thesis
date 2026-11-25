@@ -21,7 +21,7 @@ METRICS = (
     "average_turnaround_time",
     "completion_time",
     "berth_changes",
-    "increased_waiting_ships",
+    "waiting_ships",
 )
 WAIT_REASONS = (
     "all_berths_busy_wait",
@@ -94,7 +94,7 @@ def create_plan(data):
     """申告時刻順で全船のバース・荷役順・計画時刻を決める。
 
     実到着時刻は表に記録するが、計画の判断には使わない。
-    ずれなし条件でも予定ずれ条件でも、この同じ計算を使う。
+    初期計画の作成と、予定をずらした後の計画更新で使う。
     """
     berth_columns = [c for c in data.columns if c.startswith("handling_time_B")]
     planned_available = np.zeros(len(berth_columns))
@@ -230,12 +230,8 @@ def execute_adjusted_plan(data, plan, policy="reassign"):
     return pd.DataFrame(rows).sort_values("assignment_order").reset_index(drop=True)
 
 
-def calculate_metrics(schedule, normal=None):
-    """全船の待ち・在港時間と、同じ方式のずれなし条件より待ちが増えた隻数を返す。"""
-    changes = pd.Series(0.0, index=schedule.index)
-    if normal is not None:
-        baseline = schedule["ship"].map(normal.set_index("ship")["waiting_time"])
-        changes = schedule["waiting_time"] - baseline
+def calculate_metrics(schedule):
+    """全船の待ち・在港時間と、待ちが生じた隻数を返す。"""
     return {
         "total_waiting_time": schedule["waiting_time"].sum(),
         "max_waiting_time": schedule["waiting_time"].max(),
@@ -243,7 +239,7 @@ def calculate_metrics(schedule, normal=None):
         "average_turnaround_time": schedule["turnaround_time"].mean(),
         "completion_time": schedule["completion_time"].max(),
         "berth_changes": int((schedule["assigned_berth"] != schedule["planned_berth"]).sum()),
-        "increased_waiting_ships": int((changes > 1e-9).sum()),
+        "waiting_ships": int((schedule["waiting_time"] > 1e-9).sum()),
     }
 
 
@@ -308,26 +304,17 @@ def count_start_competitions(schedule, num_berths):
 
 
 def summarize_results(run_metrics):
-    """同じ試行・到着頻度・方式のずれなしとの差を取り、条件別に集計する。"""
-    normal = run_metrics[run_metrics.scenario == "normal"].set_index(["trial", "demand_multiplier", "policy"])
-    attacks = run_metrics[run_metrics.scenario == "attack"]
-    joined = attacks.join(normal[list(METRICS)], on=["trial", "demand_multiplier", "policy"], rsuffix="_normal")
+    """実行した運用の指標を到着頻度・遅れ幅・方式別に集計する。"""
     summaries = []
-    for (demand, shift, policy), rows in joined.groupby(
+    for (demand, shift, policy), rows in run_metrics.groupby(
             ["demand_multiplier", "shift_hours", "policy"], sort=False):
         for metric in METRICS:
-            values, baseline = rows[metric], rows[f"{metric}_normal"]
-            differences = values - baseline
+            values = rows[metric]
             summaries.append({
                 "demand_multiplier": demand, "shift_hours": shift,
                 "policy": policy, "metric": metric, "trials": len(rows),
                 "mean": values.mean(), "std": values.std(ddof=1),
-                "normal_mean": baseline.mean(),
-                "mean_difference": differences.mean(), "std_difference": differences.std(ddof=1),
-                "min_difference": differences.min(), "max_difference": differences.max(),
-                "increased_trials": int((differences > 1e-9).sum()),
-                "decreased_trials": int((differences < -1e-9).sum()),
-                "unchanged_trials": int((differences.abs() <= 1e-9).sum()),
+                "minimum": values.min(), "maximum": values.max(),
             })
     return pd.DataFrame(summaries)
 
@@ -347,7 +334,7 @@ def select_target_ship(data):
 
 
 def calculate_plan_diagnostics(data, normal_plan, duration_hours):
-    """期間内のずれなしの計画のバース使用割合と、到着・完了の範囲をまとめる。"""
+    """初期計画の期間内バース使用割合と、到着・完了の範囲をまとめる。"""
     occupied = normal_plan["handling_time"].sum()
     horizon = normal_plan["planned_completion_time"].max()
     if duration_hours is not None:
@@ -362,20 +349,16 @@ def calculate_plan_diagnostics(data, normal_plan, duration_hours):
     }
 
 
-def run_comparison_cases(data, normal_plan, shared, policies):
-    """共通入力とずれなし計画を受け取り、遅れ幅ごとに計画を更新して各方式を実行する。"""
+def run_comparison_cases(data, shared, policies):
+    """遅れ幅ごとに計画を更新して各方式を実行する。"""
     num_berths = sum(column.startswith("handling_time_B") for column in data)
     schedules, metrics, waiting_details = [], [], []
-    normal_by_policy = {}
-    for shift in (0, *REPORT_SHIFT_HOURS):
-        scenario = "attack" if shift else "normal"
-        arrivals, plan = data, normal_plan
-        if shift:
-            arrivals = apply_attack(data, {shared["target_ship"]: shift})
-            plan = create_plan(arrivals)
+    for shift in REPORT_SHIFT_HOURS:
+        arrivals = apply_attack(data, {shared["target_ship"]: shift})
+        plan = create_plan(arrivals)
         for policy in policies:
             schedule = execute_policy(arrivals, plan, policy)
-            labels = {**shared, "shift_hours": shift, "scenario": scenario, "policy": policy}
+            labels = {**shared, "shift_hours": shift, "policy": policy}
             schedules.append(schedule.assign(**labels))
             details = calculate_waiting_reasons(schedule, num_berths, policy)
             competition_events = np.nan
@@ -387,22 +370,20 @@ def run_comparison_cases(data, normal_plan, shared, policies):
             affected = schedule.loc[schedule.ship == shared["target_ship"], "waiting_time"]
             metrics.append({
                 **labels, "num_ships": len(data),
-                **calculate_metrics(schedule, normal_by_policy.get(policy)),
+                **calculate_metrics(schedule),
                 "target_waiting_time": affected.iloc[0],
                 **{f"total_{name}": details[name].sum() for name in WAIT_REASONS},
                 "competition_events": competition_events,
             })
-            if shift == 0:
-                normal_by_policy[policy] = schedule
     return schedules, metrics, waiting_details
 
 
-def example_wait_increase(metrics, policy):
-    """説明図に使う最大幅での全船の総待ち時間の増分を求める。"""
+def example_total_wait(metrics, policy):
+    """説明図に使う最大の遅れ幅での全船の総待ち時間を返す。"""
     rows = pd.DataFrame(metrics)
     rows = rows[rows.policy == policy].set_index("shift_hours")
     total_waiting = rows["total_waiting_time"]
-    return total_waiting.loc[max(REPORT_SHIFT_HOURS)] - total_waiting.loc[0]
+    return total_waiting.loc[max(REPORT_SHIFT_HOURS)]
 
 
 def run_experiment(trials=1, num_ships=10, num_berths=NUM_BERTHS, seed=42,
@@ -422,8 +403,8 @@ def run_experiment(trials=1, num_ships=10, num_berths=NUM_BERTHS, seed=42,
         raise ValueError("到着頻度の倍率は有限で正の値を重複なく選んでください。")
 
     inputs, schedules, metrics, diagnostics, waiting_details = [], [], [], [], []
-    example_demand = 1.0 if 1.0 in demand_multipliers else demand_multipliers[0]
-    best_increase = -np.inf
+    schedule_examples = {demand: [] for demand in demand_multipliers}
+    largest_wait = dict.fromkeys(schedule_examples, -np.inf)
     for trial_seed in range(seed, seed + trials):
         for demand in demand_multipliers:
             data = generate_ship_data(
@@ -443,18 +424,20 @@ def run_experiment(trials=1, num_ships=10, num_berths=NUM_BERTHS, seed=42,
                 trial=shared["trial"], seed=trial_seed, demand_multiplier=demand,
                 is_target=data.ship.eq(target),
             ))
-            case_schedules, case_metrics, case_details = run_comparison_cases(data, normal_plan, shared, policies)
+            case_schedules, case_metrics, case_details = run_comparison_cases(data, shared, policies)
             waiting_details.extend(case_details)
             diagnostics.append({**shared, **calculate_plan_diagnostics(data, normal_plan, duration_hours)})
             metrics.extend(case_metrics)
             if keep_schedules:
                 schedules.extend(case_schedules)
-            elif demand == example_demand:
-                increase = example_wait_increase(case_metrics, policies[0])
-                if increase > best_increase:
-                    best_increase = increase
-                    schedules = [case for case in case_schedules
-                                 if case.shift_hours.iloc[0] in (0, max(REPORT_SHIFT_HOURS))]
+            else:
+                total_wait = example_total_wait(case_metrics, policies[0])
+                if total_wait > largest_wait[demand]:
+                    largest_wait[demand] = total_wait
+                    schedule_examples[demand] = [case for case in case_schedules
+                                                  if case.shift_hours.iloc[0] == max(REPORT_SHIFT_HOURS)]
+    if not keep_schedules:
+        schedules = [case for example in schedule_examples.values() for case in example]
     run_metrics = pd.DataFrame(metrics)
     return {
         "ship_data": pd.concat(inputs, ignore_index=True),
