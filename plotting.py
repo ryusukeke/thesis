@@ -14,7 +14,7 @@ COLORS = {policy: f"C{index}" for index, policy in enumerate(POLICIES)}
 PLOT_STYLE = {"figure.titlesize": 11, "axes.titlesize": 10, "legend.fontsize": 8,
               "grid.alpha": 0.2, "savefig.dpi": 180}
 FIGURE_CAPTIONS = {
-    "01_waiting_comparison": "Figure 1. Change in mean waiting by arrival frequency and ETA delay",
+    "01_waiting_comparison": "Figure 1. Change in total waiting time by arrival frequency and ETA delay",
     "02_queue_example": "Figure 2. Numbers of ships waiting over time",
     "03_schedule_example": "Figure 3. Matched and shifted handling schedules",
 }
@@ -38,8 +38,8 @@ def save_figure(fig, output, filename, note):
 
 
 def plot_waiting_comparison(results, output):
-    """到着頻度ごとに、全船平均待ちの対応差を2・8時間で比較する。"""
-    data = results["summary"].query("metric == 'average_waiting_time'")
+    """到着頻度ごとに、全船の総待ち時間の対応差を2・8時間で比較する。"""
+    data = results["summary"].query("metric == 'total_waiting_time'")
     demands = sorted(data.demand_multiplier.unique())
     shifts = sorted(data.shift_hours.unique())
     fig, panels = plt.subplots(1, len(demands), figsize=(4.2 * len(demands), 4.5),
@@ -60,10 +60,10 @@ def plot_waiting_comparison(results, output):
         axis.set_xticks(range(len(shifts)), shifts)
         axis.set_axisbelow(True)
         axis.grid(axis="y")
-    axes[0].set_ylabel("Mean change in all-ship waiting (hours)")
+    axes[0].set_ylabel("Change in total waiting time (hours)")
     axes[-1].legend()
     trials = int(data.trials.max())
-    trial_label = "1 trial per condition" if trials == 1 else f"{trials} trials per condition"
+    trial_label = "1 trial per condition" if trials == 1 else f"Mean across {trials} trials per condition"
     save_figure(fig, output, "01_waiting_comparison",
                 f"Compared with matched ETA. Dots mark zero change. {trial_label}.")
 

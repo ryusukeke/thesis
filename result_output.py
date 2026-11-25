@@ -22,7 +22,6 @@ WAIT_REASON_LABELS = {
 }
 METRIC_LABELS = {
     "total_waiting_time": "全船の総待ち時間（時間）",
-    "average_waiting_time": "全船の平均待ち時間（時間）",
     "target_waiting_time": "対象船の待ち時間（時間）",
     "max_waiting_time": "全船の最大待ち時間（時間）",
     "total_turnaround_time": "全船の総在港時間（時間）",
@@ -49,8 +48,7 @@ EXCEL_COLUMNS = {
     "planned_start_time": "計画荷役開始時刻（時間）", "start_time": "実荷役開始時刻（時間）",
     "waiting_time": "待ち時間（時間）",
     **WAIT_REASON_LABELS,
-    **{f"average_{name}": label.replace("（時間）", "（時間／隻）")
-       for name, label in WAIT_REASON_LABELS.items()},
+    **{f"total_{name}": f"全船の{label}" for name, label in WAIT_REASON_LABELS.items()},
     "competition_events": "開始枠の競合回数（回）",
     "competition_participations": "開始枠の競合参加回数（回）",
     "base_handling_time": "基準荷役時間（時間）", "cargo_nearest_berth": "荷物の最寄りバース番号",
@@ -65,8 +63,8 @@ EXCEL_VALUES = {
 }
 SUMMARY_OVERVIEW_COLUMNS = {
     "demand_multiplier": EXCEL_COLUMNS["demand_multiplier"], "shift_hours": EXCEL_COLUMNS["shift_hours"],
-    "policy": "運用方式", "normal_mean": "ずれなし条件の平均待ち（時間）",
-    "mean": "予定ずれありの平均待ち（時間）", "mean_difference": "待ち時間の増減（時間）",
+    "policy": "運用方式", "normal_mean": "ずれなし条件の総待ち時間（時間）",
+    "mean": "予定ずれありの総待ち時間（時間）", "mean_difference": "総待ち時間の増減（時間）",
 }
 
 
@@ -75,7 +73,7 @@ def create_config(args, results, interval):
     runs = results["run_metrics"]
     normal = runs[runs.scenario == "normal"]
     normal_waiting = normal.groupby(["demand_multiplier", "policy"], as_index=False).agg(
-        trials=("trial", "count"), mean_waiting_hours=("average_waiting_time", "mean"),
+        trials=("trial", "count"), mean_total_waiting_hours=("total_waiting_time", "mean"),
         max_waiting_hours=("max_waiting_time", "max"),
     )
     return {
@@ -92,7 +90,7 @@ def create_config(args, results, interval):
         "target_selection": "ceil(ship_count * target_position), one-based actual arrival order; ties follow input order",
         "report_shift_hours": list(REPORT_SHIFT_HOURS),
         "shift_rule": "target ETA = actual arrival + shift_hours; other ETAs = actual arrivals",
-        "primary_metric": "average_waiting_time; shifted_minus_matched within trial, demand and policy",
+        "primary_metric": "total_waiting_time; shifted_minus_matched within trial, demand and policy",
         "policies": runs.policy.unique().tolist(),
         "adjusted_start_rule": "arrived_and_berth_free; no advance time limit",
         "fixed_start_rule": "keep_planned_start_berth_and_order; wait_for_actual_arrival",
@@ -111,7 +109,7 @@ def create_config(args, results, interval):
         "normal_executions": len(normal),
         "normal_waiting_summary": normal_waiting.to_dict("records"),
         "normal_occupancy": results["plan_diagnostics"]["normal_occupancy"].mean(),
-        "schedule_storage": "illustrative trial with largest mean-wait increase for the first policy at the baseline demand and +8 hours",
+        "schedule_storage": "illustrative trial with largest total-wait increase for the first policy at the baseline demand and +8 hours",
         "example_demand_multiplier": float(results["schedules"].demand_multiplier.iloc[0]),
         "example_shift_hours": int(results["schedules"].shift_hours.max()),
         "example_seed": int(results["schedules"].seed.iloc[0]),
@@ -167,8 +165,8 @@ def save_excel(results, path):
 
 
 def create_waiting_overview(run_metrics):
-    """各試行の船平均を平均し、競合回数は1週あたりで集計する。"""
-    columns = ["average_waiting_time", *[f"average_{name}" for name in WAIT_REASONS], "competition_events"]
+    """各試行の全船分の待ち時間と競合回数を、条件ごとに集計する。"""
+    columns = ["total_waiting_time", *[f"total_{name}" for name in WAIT_REASONS], "competition_events"]
     keys = ["demand_multiplier", "shift_hours", "policy", "scenario"]
     return run_metrics.groupby(keys, sort=False)[columns].mean().reset_index()
 
@@ -180,7 +178,7 @@ def save_waiting_reason_sheet(writer, results):
     details = results["waiting_details"]
     identifiers = ["trial", "demand_multiplier", "shift_hours", "policy", "ship"]
     details = details[identifiers + [column for column in details if column not in identifiers]]
-    labels = {**EXCEL_COLUMNS, "average_waiting_time": "平均待ち時間（時間／隻）",
+    labels = {**EXCEL_COLUMNS,
               "reported_arrival_time": "その条件の申告到着時刻（時間）",
               "completion_time": "荷役完了時刻（時間）", "competition_events": "開始枠の競合（回／週）"}
     translate_excel_table(overview, labels).to_excel(writer, sheet_name=name, startrow=6, index=False)
@@ -193,7 +191,7 @@ def save_waiting_reason_sheet(writer, results):
     trial_label = "1試行の結果" if trials == 1 else f"{trials}試行の平均"
     notes = {
         1: "待ち時間の内訳と開始枠の競合",
-        2: f"上段は{trial_label}。4種類の時間の合計が平均待ち時間と一致します。",
+        2: f"上段は{trial_label}。4種類の時間の合計が全船の総待ち時間と一致します。",
         3: "分類の優先順：全バース使用中、指定バース使用中、計画順番待ち、計画開始待ち。重複して数えません。",
         4: "競合＝到着・完了時点で、開始前の到着済み待ち隻数＞空きバース数＞0。バース変更のみ集計。",
         5: "他2方式の競合欄は対象外で空欄。時間の内訳はその時間帯の状態で、原因の寄与率ではありません。",
@@ -224,13 +222,13 @@ def save_waiting_reason_sheet(writer, results):
 
 
 def create_summary_overview(summary):
-    """各到着頻度・変更幅・方式の平均待ちと対応差を一覧にする。"""
-    overview = summary.loc[summary.metric == "average_waiting_time", list(SUMMARY_OVERVIEW_COLUMNS)]
+    """各到着頻度・変更幅・方式の総待ち時間と対応差を一覧にする。"""
+    overview = summary.loc[summary.metric == "total_waiting_time", list(SUMMARY_OVERVIEW_COLUMNS)]
     return overview.reset_index(drop=True)
 
 
 def save_summary_sheet(writer, summary):
-    """上段は平均待ちの比較、下段は全指標の詳細を残す。"""
+    """上段は総待ち時間の比較、下段は全指標の詳細を残す。"""
     overview = create_summary_overview(summary)
     name = EXCEL_SHEETS["summary"]
     translate_excel_table(overview, SUMMARY_OVERVIEW_COLUMNS).to_excel(
@@ -253,8 +251,8 @@ def format_summary_sheet(sheet, overview, summary, detail_header):
         1: "1隻の予定ずれと船の待ち時間",
         2: "実到着順の10%地点の1隻を対象に、予定到着を2時間または8時間遅らせた比較。",
         3: "増減＝予定ずれあり−同じ方式のずれなし条件。＋は待ちが増加、−は減少。",
-        4: f"{trial_label}。時間は船1隻あたり。実到着・荷役条件はずれなし条件と同じ。",
-        6: "表1 全船の平均待ち時間の比較",
+        4: f"{trial_label}。各船の待ち時間を合計。実到着・荷役条件はずれなし条件と同じ。",
+        6: "表1 全船の総待ち時間の比較",
         detail_header - 3: "表2 全指標の詳細集計",
         detail_header - 2: f"{deviation_note} 差は同じ試行・到着頻度・方式のずれなしから算出。",
     }
@@ -353,7 +351,7 @@ def save_results(results, config, output):
 
 
 def print_summary(results, interval, output):
-    """実行した条件と平均待ちを表示する。"""
+    """実行した条件と総待ち時間を表示する。"""
     runs = results["run_metrics"]
     print(f"{runs.trial.nunique()}試行、ずれなし運用{int((runs.scenario == 'normal').sum())}ケース、"
           f"1隻の予定ずれ運用{int((runs.scenario == 'attack').sum())}ケース。")

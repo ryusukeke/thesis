@@ -15,7 +15,6 @@ TARGET_POSITION = 0.10
 POLICIES = ("fixed", "same_berth", "reassign")
 METRICS = (
     "total_waiting_time",
-    "average_waiting_time",
     "target_waiting_time",
     "max_waiting_time",
     "total_turnaround_time",
@@ -221,7 +220,6 @@ def calculate_metrics(schedule, normal=None):
         changes = schedule["waiting_time"] - baseline
     return {
         "total_waiting_time": schedule["waiting_time"].sum(),
-        "average_waiting_time": schedule["waiting_time"].mean(),
         "max_waiting_time": schedule["waiting_time"].max(),
         "total_turnaround_time": schedule["turnaround_time"].sum(),
         "average_turnaround_time": schedule["turnaround_time"].mean(),
@@ -373,7 +371,7 @@ def run_comparison_cases(data, shared, policies):
                 **labels, "num_ships": len(data),
                 **calculate_metrics(schedule, normal_by_policy.get(policy)),
                 "target_waiting_time": affected.iloc[0],
-                **{f"average_{name}": details[name].mean() for name in WAIT_REASONS},
+                **{f"total_{name}": details[name].sum() for name in WAIT_REASONS},
                 "competition_events": competition_events,
             })
             if shift == 0:
@@ -382,10 +380,11 @@ def run_comparison_cases(data, shared, policies):
 
 
 def example_wait_increase(metrics, policy):
-    """説明図に使う最大幅での全船平均待ちの増分を求める。"""
+    """説明図に使う最大幅での全船の総待ち時間の増分を求める。"""
     rows = pd.DataFrame(metrics)
     rows = rows[rows.policy == policy].set_index("shift_hours")
-    return rows.loc[max(REPORT_SHIFT_HOURS), "average_waiting_time"] - rows.loc[0, "average_waiting_time"]
+    total_waiting = rows["total_waiting_time"]
+    return total_waiting.loc[max(REPORT_SHIFT_HOURS)] - total_waiting.loc[0]
 
 
 def run_experiment(trials=1, num_ships=10, num_berths=NUM_BERTHS, seed=42,

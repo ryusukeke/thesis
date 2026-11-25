@@ -246,11 +246,10 @@ class SimulationTests(unittest.TestCase):
         changed = apply_attack(data, {'V3': -4})
         schedule = execute_adjusted_plan(changed, create_plan(changed), 'reassign')
         metrics = calculate_metrics(schedule, normal)
-        self.assertAlmostEqual(metrics['average_waiting_time'], 4 / 3)
+        self.assertEqual(metrics['total_waiting_time'], 4)
         self.assertEqual(metrics['max_waiting_time'], 4)
         self.assertEqual(metrics['increased_waiting_ships'], 1)
         self.assertEqual(calculate_metrics(normal)['increased_waiting_ships'], 0)
-        self.assertNotIn('other_average_waiting_time', metrics)
 
     def test_queue_profile_merges_simultaneous_arrivals_and_starts(self):
         from plotting import queue_profile
@@ -299,9 +298,9 @@ class SimulationTests(unittest.TestCase):
                 ['trial', 'demand_multiplier', 'shift_hours', 'policy']):
             metric = result['run_metrics'].query(
                 'trial==@trial and demand_multiplier==@demand and shift_hours==@width and policy==@policy').iloc[0]
-            self.assertAlmostEqual(metric.average_waiting_time, case.waiting_time.mean())
+            self.assertAlmostEqual(metric.total_waiting_time, case.waiting_time.sum())
             for name in WAIT_REASONS:
-                self.assertAlmostEqual(metric[f'average_{name}'], case[name].mean())
+                self.assertAlmostEqual(metric[f'total_{name}'], case[name].sum())
             if policy == 'reassign':
                 np.testing.assert_allclose(case.all_berths_busy_wait, case.waiting_time)
                 self.assertTrue(case.competition_participations.notna().all())
@@ -322,7 +321,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(set(attacked.scenario), {'attack'})
         runs = full['run_metrics']
         fixed = runs.query("policy == 'fixed' and demand_multiplier == 1").pivot(
-            index='trial', columns='shift_hours', values='average_waiting_time')
+            index='trial', columns='shift_hours', values='total_waiting_time')
         self.assertEqual(sample.trial.iloc[0], (fixed[8] - fixed[0]).idxmax())
         self.assertLess(len(sample),len(full['schedules']))
 
@@ -376,7 +375,7 @@ class SimulationTests(unittest.TestCase):
                 if sheet.title == '条件別集計':
                     self.assertEqual(sheet.freeze_panes, 'B8')
                     self.assertEqual(sheet.tables['WaitingOverview'].ref, 'A7:F25')
-                    self.assertEqual(sheet.auto_filter.ref, 'A32:O194')
+                    self.assertEqual(sheet.auto_filter.ref, 'A32:O176')
                     self.assertTrue(sheet['A29'].value.startswith('表2'))
                     self.assertEqual(sheet['D6'].hyperlink.target, "#'条件別集計'!A29")
                     self.assertEqual(sheet['D29'].hyperlink.target, "#'条件別集計'!A1")
@@ -430,7 +429,7 @@ class SimulationTests(unittest.TestCase):
                 self.assertIn('運用方式', saved)
                 self.assertEqual(set(saved['運用方式']), {'固定', '同じバース内調整', 'バース変更'})
                 if name == 'summary':
-                    self.assertIn('全船の平均待ち時間（時間）', saved['評価指標'].values)
+                    self.assertIn('全船の総待ち時間（時間）', saved['評価指標'].values)
                 else:
                     self.assertIn('予定ずれあり', saved['予定情報の条件'].values)
                     self.assertIn('ずれなし', saved['予定情報の条件'].values)
@@ -440,6 +439,7 @@ class SimulationTests(unittest.TestCase):
                         saved[column] = saved[column].replace({label: key for key, label in labels.items()})
                 pd.testing.assert_frame_equal(saved, results[name], check_dtype=False)
             saved_config = json.loads((output / 'config.json').read_text())
+            self.assertTrue(saved_config['primary_metric'].startswith('total_waiting_time;'))
             self.assertEqual(saved_config['first_seed'], 42)
             self.assertEqual(saved_config['policies'], ['fixed', 'same_berth', 'reassign'])
             self.assertIn('normal_plan_diagnostics', saved_config)
