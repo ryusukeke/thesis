@@ -147,13 +147,6 @@
     "detail_header_row": 32,
     "detail_rows": 162
   },
-  "code_sha256": {
-    "simulation.py": "646b3eb2243528857ecce44665eff3dccf4c9e37ec0d0bb7243b8c314450679e",
-    "main.py": "a1df853fa54121bcc7a88cbab9f04c738f3ce72e0293027d7d978be05d58f7d2",
-    "cli.py": "1b3c78336d529e1c12e464b803c0495a468c24b2566d75d1854ac51800245aa7",
-    "result_output.py": "d4d0710472c3f2470e4dbf118b857aa9b6d4f33a5806c71864d9c732be2fec37",
-    "plotting.py": "defdd4174252ffba926d640861f7e0c7cc4eab481d5fdd8691ebe34a52beb0d9"
-  },
   "reference_sha256": {
     "kobe_reference.json": "8ad260547b04ab60a8566fc9d19268d631afd4e33738243c13165237a3890abc",
     "kobe_daily_forecasts.csv": "84e74166df7df5c6143984650aedcf327e2b9d8680ef104edc1194faa7fa5547",
