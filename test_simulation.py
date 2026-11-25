@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 from cli import create_parser, parse_args
-from result_output import (EXCEL_COLUMNS, EXCEL_VALUES, REFERENCE_DIR, SUMMARY_OVERVIEW_COLUMNS,
+from result_output import (EXCEL_COLUMNS, EXCEL_VALUES, SUMMARY_OVERVIEW_COLUMNS,
                            create_config, create_summary_overview, excel_number_format, save_results,
                            translate_excel_table)
 from simulation import (POLICIES, apply_attack, create_plan,
@@ -344,9 +344,10 @@ class SimulationTests(unittest.TestCase):
                 run_experiment(**settings)
 
     def test_saved_kobe_reference_matches_daily_counts_and_selected_rows(self):
-        reference = json.loads((REFERENCE_DIR / 'kobe_reference.json').read_text())
-        daily = pd.read_csv(REFERENCE_DIR / 'kobe_daily_forecasts.csv')
-        selected = pd.read_csv(REFERENCE_DIR / 'kobe_reference_rows.csv')
+        reference_dir = Path(__file__).resolve().parent / 'data/kobe_reference_20261105'
+        reference = json.loads((reference_dir / 'kobe_reference.json').read_text())
+        daily = pd.read_csv(reference_dir / 'kobe_daily_forecasts.csv')
+        selected = pd.read_csv(reference_dir / 'kobe_reference_rows.csv')
         counted = selected[selected['counted']]
         self.assertEqual(reference['observed_snapshot_days'], len(daily))
         self.assertEqual(reference['scheduled_ship_days'], int(daily.scheduled_ship_days.sum()))

@@ -1,19 +1,17 @@
 """4バースの到着予定と実際のずれの比較実験を実行し、設定・Excel・論文用グラフを保存する。"""
 
-import json
-
 from cli import create_parser, parse_args
-from result_output import REFERENCE_DIR, create_config, print_summary, save_results
+from result_output import create_config, print_summary, save_results
 from simulation import DURATION_HOURS, NUM_BERTHS, POLICIES, run_experiment
 
 
 def main():
-    """引数の確認 → 保存済み参照値の読み込み → 実験の計算 → 保存・描画・表示。"""
+    """引数の確認 → 実験の計算 → 保存・描画・表示。"""
     parser = create_parser()
     args = parse_args(parser)
+    # 神戸港EDIの翌日予定30日分・226件。根拠は data/kobe_reference_20261105/README.md。
+    interval = 3.186
     try:
-        reference = json.loads((REFERENCE_DIR / "kobe_reference.json").read_text())
-        interval = reference["mean_candidate_interval_hours"]
         results = run_experiment(
             trials=args.trials,
             num_berths=NUM_BERTHS,

@@ -1,8 +1,6 @@
 """実験条件の記録、計算結果のExcel・JSON保存、画面への概要表示を担当する。"""
 
-import hashlib
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,9 +12,6 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from simulation import DURATION_HOURS, NUM_BERTHS, REPORT_SHIFT_HOURS, TARGET_POSITION, WAIT_REASONS
 
-ROOT = Path(__file__).resolve().parent
-REFERENCE_DIR = ROOT / "data/kobe_reference_20261105"
-REFERENCE_FILES = ("kobe_reference.json", "kobe_daily_forecasts.csv", "kobe_reference_rows.csv")
 EXCEL_SHEETS = {"summary": "条件別集計", "run_metrics": "試行別結果", "ship_data": "船別データ",
                 "waiting_details": "待ち理由"}
 WAIT_REASON_LABELS = {
@@ -73,15 +68,6 @@ SUMMARY_OVERVIEW_COLUMNS = {
     "policy": "運用方式", "normal_mean": "ずれなし条件の平均待ち（時間）",
     "mean": "予定ずれありの平均待ち（時間）", "mean_difference": "待ち時間の増減（時間）",
 }
-
-
-def calculate_file_hashes(directory, filenames):
-    """再現確認に使うファイル名とSHA-256の対応を作る。"""
-    hashes = {}
-    for name in filenames:
-        content = (directory / name).read_bytes()
-        hashes[name] = hashlib.sha256(content).hexdigest()
-    return hashes
 
 
 def create_config(args, results, interval):
@@ -153,8 +139,8 @@ def create_config(args, results, interval):
                            "overview_header_row": 7,
                            "detail_header_row": len(results["summary"]) // len(METRIC_LABELS) + 14,
                            "detail_rows": len(results["summary"])},
-        "reference_sha256": calculate_file_hashes(REFERENCE_DIR, REFERENCE_FILES),
         "sources": {
+            "arrival_interval": "data/kobe_reference_20261105/README.md",
             "berth_count": "https://www.mol.co.jp/info/article/2026/0819.html",
             "rescheduling": "https://transp-or.epfl.ch/documents/technicalReports/NitBierEra2013.pdf",
             "information_manipulation": "https://doi.org/10.1088/1742-6596/2867/1/012047",

@@ -1,19 +1,19 @@
 {
   "method": "last_snapshot_each_day_next_calendar_day_forecasts",
-  "through_snapshot_date": "2026-11-04",
+  "through_snapshot_date": "2026-11-21",
   "berth_codes": [
     "PC-14",
     "PC-15(E)",
     "PC-16",
     "PC-17"
   ],
-  "observed_snapshot_days": 13,
-  "scheduled_ship_days": 103,
+  "observed_snapshot_days": 30,
+  "scheduled_ship_days": 226,
   "forecast_period_start": "2026-10-24",
-  "forecast_period_end": "2026-11-05",
-  "mean_daily_forecasts": 7.923076923076923,
-  "mean_candidate_interval_hours": 3.029126213592233,
-  "expected_weekly_candidates": 55.46153846153846,
+  "forecast_period_end": "2026-11-22",
+  "mean_daily_forecasts": 7.533333333333333,
+  "mean_candidate_interval_hours": 3.185840707964602,
+  "expected_weekly_candidates": 52.733333333333334,
   "deduplication": "call_sign_or_ship_name_and_forecast_date_within_selected_snapshot",
   "limitations": [
     "予定件数であり実績寄港数ではない",
@@ -74,6 +74,76 @@
     {
       "file": "/Users/ryusuke/home/personal/thesis/data/kobe_port/raw/2026-11-04/2026110410460902_入港船予定表.csv",
       "sha256": "5a5da891153fb17e1f895942d77ea2790abb41573e003886664b4db84fe5abe8"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-05/2026110510541894_入港船予定表.csv",
+      "sha256": "d9afa27127815f5774cdb46d67b6370a63cf0d3c1be36db35e95356584dfca7d"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-06/2026110610554323_入港船予定表.csv",
+      "sha256": "e2e152de05cc474d150241daa0027ee8b84e4d2afa54955ef1751f4cf376b68f"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-07/2026110710264732_入港船予定表.csv",
+      "sha256": "9e7cc0c31871b0c4607fad5cca4c4fe6df07beb947dd61bf655fc536379547a7"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-08/2026110809585496_入港船予定表.csv",
+      "sha256": "9ded2d6d370092570a006945ea9b9710457d3e030ee63f863eb56b3aa397bdc8"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-09/2026110910193915_入港船予定表.csv",
+      "sha256": "38f0adba256d26d0d15c607f3ca41589d2d8363d37ad2593e9284bc538691299"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-10/2026111012535605_入港船予定表.csv",
+      "sha256": "408f526f72b293f5b6684ec28872d0ad5c03cfbbb66fb1e695e13d30b039e47f"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-11/2026111110363458_入港船予定表.csv",
+      "sha256": "a3a11a18dc724409b5388615ff4e0db75d75f571c194a81fbc1647311e3ca32d"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-12/2026111211363515_入港船予定表.csv",
+      "sha256": "3e1ebbf18956de035a5570debfe9fb7f5d3e7eb76cbc32c0a4b6f284917d87a5"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-13/2026111311180361_入港船予定表.csv",
+      "sha256": "cb7cfe2bf72581d82659d49372a2fc36b9e086b1d52ef8b3483c052354c55602"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-14/2026111410544442_入港船予定表.csv",
+      "sha256": "cec29562bd2785bc1ffa7df1ea011129d85b0051f2987371aaf132d3f3fd7919"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-15/2026111510262195_入港船予定表.csv",
+      "sha256": "e94b1eac2c100d77a324822463cf509197e96697397077cc1b07e662bd90cbf8"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-16/2026111610293080_入港船予定表.csv",
+      "sha256": "240b1abcafc41312a0fe8f5f4e9122eea2fd6078005a7e0a6a2e7a9cf595fe99"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-17/2026111713152674_入港船予定表.csv",
+      "sha256": "606b7e48573a926d500547742277ec01e87af539fc396b75670a082717ecbd2c"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-18/2026111812151382_入港船予定表.csv",
+      "sha256": "ee078e4ecd02258eda9ec3ef01ee17f16b32b0d15b3e2e1342ba41d1f8ca56dd"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-19/2026111911533563_入港船予定表.csv",
+      "sha256": "a18764befe632e45a59f464d5374f1cc9565b3b56a0e03f3fdd84dd7863ac19c"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-20/2026112011463650_入港船予定表.csv",
+      "sha256": "4fbd86f3d6487cab226170a14fdc410b2c48cc0a34f5d2032bdbb1448ed5e73e"
+    },
+    {
+      "file": "data/kobe_port/raw/2026-11-21/2026112111554746_入港船予定表.csv",
+      "sha256": "84b11c10365e118d0e4567f67aec231b52c8f496260e2aa2724c2c658019747a"
     }
-  ]
+  ],
+  "additional_sources_repository": "ryusuke2003/kobe-port-collector",
+  "additional_sources_commit": "2be13ca5d6cd81b73bf8666f1e26fe0b6add51f2"
 }
